@@ -44,6 +44,31 @@ def resolve_from_repo_root(path: Path) -> Path:
     return path if path.is_absolute() else REPO_ROOT / path
 
 
+def counter_to_port_records(counter: Counter[int], key_name: str = "port") -> list[dict[str, Any]]:
+    """ポート番号のCounterをJSON向けの上位20件レコードに変換する。"""
+    return [{key_name: k, "packets": v} for k, v in counter.most_common(20)]
+
+
+def counter_to_ip_records(counter: Counter[str], key_name: str = "ip") -> list[dict[str, Any]]:
+    """IPアドレスのCounterをJSON向けの上位20件レコードに変換する。"""
+    return [{key_name: k, "packets": v} for k, v in counter.most_common(20)]
+
+
+def counter_to_endpoint_records(counter: Counter[str], key_name: str = "endpoint") -> list[dict[str, Any]]:
+    """エンドポイントやフローのCounterをJSON向けの上位20件レコードに変換する。"""
+    return [{key_name: k, "packets": v} for k, v in counter.most_common(20)]
+
+
+def counter_to_proto_records(counter: Counter[str]) -> list[dict[str, Any]]:
+    """プロトコル名のCounterをJSON向けレコードに変換する。"""
+    return [{"protocol": k, "packets": v} for k, v in counter.most_common()]
+
+
+def counter_to_time_records(counter: Counter[str]) -> list[dict[str, Any]]:
+    """分単位の時刻バケットCounterをJSON向けの上位20件レコードに変換する。"""
+    return [{"minute": k, "packets": v} for k, v in counter.most_common(20)]
+
+
 def analyze_pcap_gz(
     input_path: Path,
     progress_every: int = 1_000_000,
@@ -52,7 +77,8 @@ def analyze_pcap_gz(
     """gzip圧縮されたpcapファイルを読み込み、通信統計を集計する。
 
     Ethernetフレームを順に解析し、総パケット数、総バイト数、IPv4/IPv6、
-    TCP/UDP/ICMP/ARP、上位ポート、上位IPアドレス、分単位のパケット数などを
+    TCP/UDP/ICMP/ARP、上位ポート、上位IPアドレス、上位エンドポイント、
+    上位フロー、分単位のパケット数などを、JSONで扱いやすいレコード形式の
     辞書として返す。``progress_every`` が正の値なら指定パケット数ごとに
     進捗を表示し、``max_packets`` が指定されている場合はその件数で解析を
     打ち切る。
@@ -79,6 +105,9 @@ def analyze_pcap_gz(
     sport_counter: Counter[int] = Counter()
     src_ip_counter: Counter[str] = Counter()
     dst_ip_counter: Counter[str] = Counter()
+    src_endpoint_counter: Counter[str] = Counter()
+    dst_endpoint_counter: Counter[str] = Counter()
+    flow_counter: Counter[str] = Counter()
     l4_proto_counter: Counter[str] = Counter()
     packets_per_minute: Counter[str] = Counter()
 
@@ -130,16 +159,36 @@ def analyze_pcap_gz(
 
             try:
                 if isinstance(ip.data, dpkt.tcp.TCP):
+                    tcp = ip.data
                     stats["tcp"] += 1
                     l4_proto_counter["TCP"] += 1
-                    sport_counter[ip.data.sport] += 1
-                    dport_counter[ip.data.dport] += 1
+
+                    sport_counter[tcp.sport] += 1
+                    dport_counter[tcp.dport] += 1
+
+                    src_endpoint = f"{src_ip}:{tcp.sport}"
+                    dst_endpoint = f"{dst_ip}:{tcp.dport}"
+                    flow = f"TCP {src_ip}:{tcp.sport} -> {dst_ip}:{tcp.dport}"
+
+                    src_endpoint_counter[src_endpoint] += 1
+                    dst_endpoint_counter[dst_endpoint] += 1
+                    flow_counter[flow] += 1
 
                 elif isinstance(ip.data, dpkt.udp.UDP):
+                    udp = ip.data
                     stats["udp"] += 1
                     l4_proto_counter["UDP"] += 1
-                    sport_counter[ip.data.sport] += 1
-                    dport_counter[ip.data.dport] += 1
+
+                    sport_counter[udp.sport] += 1
+                    dport_counter[udp.dport] += 1
+
+                    src_endpoint = f"{src_ip}:{udp.sport}"
+                    dst_endpoint = f"{dst_ip}:{udp.dport}"
+                    flow = f"UDP {src_ip}:{udp.sport} -> {dst_ip}:{udp.dport}"
+
+                    src_endpoint_counter[src_endpoint] += 1
+                    dst_endpoint_counter[dst_endpoint] += 1
+                    flow_counter[flow] += 1
 
                 elif isinstance(ip.data, dpkt.icmp.ICMP):
                     stats["icmp"] += 1
@@ -171,12 +220,15 @@ def analyze_pcap_gz(
         stats["packets_total"] / elapsed_total if elapsed_total > 0 else 0.0
     )
 
-    stats["top_destination_ports"] = dport_counter.most_common(20)
-    stats["top_source_ports"] = sport_counter.most_common(20)
-    stats["top_source_ips"] = src_ip_counter.most_common(20)
-    stats["top_destination_ips"] = dst_ip_counter.most_common(20)
-    stats["layer4_protocols"] = l4_proto_counter.most_common()
-    stats["packets_per_minute_top20"] = packets_per_minute.most_common(20)
+    stats["top_destination_ports"] = counter_to_port_records(dport_counter, "port")
+    stats["top_source_ports"] = counter_to_port_records(sport_counter, "port")
+    stats["top_source_ips"] = counter_to_ip_records(src_ip_counter, "ip")
+    stats["top_destination_ips"] = counter_to_ip_records(dst_ip_counter, "ip")
+    stats["top_source_endpoints"] = counter_to_endpoint_records(src_endpoint_counter, "endpoint")
+    stats["top_destination_endpoints"] = counter_to_endpoint_records(dst_endpoint_counter, "endpoint")
+    stats["top_flows"] = counter_to_endpoint_records(flow_counter, "flow")
+    stats["layer4_protocols"] = counter_to_proto_records(l4_proto_counter)
+    stats["packets_per_minute_top20"] = counter_to_time_records(packets_per_minute)
     stats["finished_at_epoch"] = time.time()
 
     return stats
