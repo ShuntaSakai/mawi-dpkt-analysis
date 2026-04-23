@@ -14,17 +14,14 @@ paths:
 
 run:
   sleep_seconds_between_jobs: 5
-
   # 解析成功後に raw を削除する
   delete_raw_after_success: true
-
   # エラー時は raw を残す
   retain_failed_files: true
-
   # グラフ生成
   generate_plots: true
   graph_type: "all"
-
   # analyze_one.py 用
   progress_every: 1000000
   max_packets: null
+  min_free_gib_before_download: 10
