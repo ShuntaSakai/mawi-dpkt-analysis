@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Large data
+data/raw/
+data/interim/
+data/processed/
+
+# Results
+results/
+logs/
+
+# State
+state/*.tmp
+
+# OS/editor
+.DS_Store
+.vscode/
