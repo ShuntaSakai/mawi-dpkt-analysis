@@ -1,2 +1,3 @@
 dpkt
+matplotlib
 PyYAML
