@@ -19,7 +19,8 @@ DEFAULT_OUTDIR = REPO_ROOT / "results/json"
 
 
 def inet_to_str(addr: bytes) -> str:
-    """IPアドレスのバイト列を文字列表記に変換する。
+    """
+    IPアドレスのバイト列を文字列表記に変換する。
 
     4バイトならIPv4、16バイトならIPv6として解釈する。変換できない場合は、
     解析を止めないために元のバイト列を16進文字列として返す。
@@ -69,12 +70,42 @@ def counter_to_time_records(counter: Counter[str]) -> list[dict[str, Any]]:
     return [{"minute": k, "packets": v} for k, v in counter.most_common(20)]
 
 
+def counter_to_flag_records(counter: Counter[str]) -> list[dict[str, Any]]:
+    """TCPフラグ名や組み合わせのCounterをJSON向けレコードに変換する。"""
+    return [{"flag": k, "packets": v} for k, v in counter.most_common()]
+
+
+def tcp_flags_to_names(flags: int) -> list[str]:
+    """TCPフラグ整数値を、人が読みやすいフラグ名の配列に変換する。"""
+    names: list[str] = []
+    if flags & dpkt.tcp.TH_FIN:
+        names.append("FIN")
+    if flags & dpkt.tcp.TH_SYN:
+        names.append("SYN")
+    if flags & dpkt.tcp.TH_RST:
+        names.append("RST")
+    if flags & dpkt.tcp.TH_PUSH:
+        names.append("PSH")
+    if flags & dpkt.tcp.TH_ACK:
+        names.append("ACK")
+    if flags & dpkt.tcp.TH_URG:
+        names.append("URG")
+    if flags & dpkt.tcp.TH_ECE:
+        names.append("ECE")
+    if flags & dpkt.tcp.TH_CWR:
+        names.append("CWR")
+    if not names:
+        names.append("NONE")
+    return names
+
+
 def analyze_pcap_gz(
     input_path: Path,
     progress_every: int = 1_000_000,
     max_packets: int | None = None,
 ) -> dict[str, Any]:
-    """gzip圧縮されたpcapファイルを読み込み、通信統計を集計する。
+    """
+    gzip圧縮されたpcapファイルを読み込み、通信統計を集計する。
 
     Ethernetフレームを順に解析し、総パケット数、総バイト数、IPv4/IPv6、
     TCP/UDP/ICMP/ARP、上位ポート、上位IPアドレス、上位エンドポイント、
@@ -99,6 +130,10 @@ def analyze_pcap_gz(
         "ip_parse_error": 0,
         "first_timestamp": None,
         "last_timestamp": None,
+        "tcp_syn": 0,
+        "tcp_ack": 0,
+        "tcp_fin": 0,
+        "tcp_rst": 0,
     }
 
     dport_counter: Counter[int] = Counter()
@@ -108,8 +143,11 @@ def analyze_pcap_gz(
     src_endpoint_counter: Counter[str] = Counter()
     dst_endpoint_counter: Counter[str] = Counter()
     flow_counter: Counter[str] = Counter()
+    syn_flow_counter: Counter[str] = Counter()
     l4_proto_counter: Counter[str] = Counter()
     packets_per_minute: Counter[str] = Counter()
+    tcp_flag_counter: Counter[str] = Counter()
+    tcp_flag_combo_counter: Counter[str] = Counter()
 
     started = time.time()
 
@@ -174,6 +212,24 @@ def analyze_pcap_gz(
                     dst_endpoint_counter[dst_endpoint] += 1
                     flow_counter[flow] += 1
 
+                    flags = tcp.flags
+                    flag_names = tcp_flags_to_names(flags)
+                    flag_combo = "|".join(flag_names)
+
+                    tcp_flag_combo_counter[flag_combo] += 1
+                    for name in flag_names:
+                        tcp_flag_counter[name] += 1
+
+                    if flags & dpkt.tcp.TH_SYN:
+                        stats["tcp_syn"] += 1
+                        syn_flow_counter[flow] += 1
+                    if flags & dpkt.tcp.TH_ACK:
+                        stats["tcp_ack"] += 1
+                    if flags & dpkt.tcp.TH_FIN:
+                        stats["tcp_fin"] += 1
+                    if flags & dpkt.tcp.TH_RST:
+                        stats["tcp_rst"] += 1
+
                 elif isinstance(ip.data, dpkt.udp.UDP):
                     udp = ip.data
                     stats["udp"] += 1
@@ -227,15 +283,19 @@ def analyze_pcap_gz(
     stats["top_source_endpoints"] = counter_to_endpoint_records(src_endpoint_counter, "endpoint")
     stats["top_destination_endpoints"] = counter_to_endpoint_records(dst_endpoint_counter, "endpoint")
     stats["top_flows"] = counter_to_endpoint_records(flow_counter, "flow")
+    stats["top_syn_flows"] = counter_to_endpoint_records(syn_flow_counter, "flow")
     stats["layer4_protocols"] = counter_to_proto_records(l4_proto_counter)
     stats["packets_per_minute_top20"] = counter_to_time_records(packets_per_minute)
+    stats["tcp_flag_counts"] = counter_to_flag_records(tcp_flag_counter)
+    stats["top_tcp_flag_combinations"] = counter_to_flag_records(tcp_flag_combo_counter)
     stats["finished_at_epoch"] = time.time()
 
     return stats
 
 
 def save_json(obj: dict[str, Any], outpath: Path) -> None:
-    """解析結果の辞書をJSONファイルとして保存する。
+    """
+    解析結果の辞書をJSONファイルとして保存する。
 
     保存先ディレクトリが存在しない場合は作成し、日本語などをそのまま
     読めるように ``ensure_ascii=False`` で書き出す。
