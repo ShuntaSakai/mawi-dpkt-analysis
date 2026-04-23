@@ -1,0 +1,30 @@
+mawi:
+  base_url: "https://mawi.wide.ad.jp/mawi/ditl/ditl2026"
+  # 解析対象の開始・終了（YYYYMMDDHHMM）
+  start: "202604080000"
+  end: "202604080045"
+  interval_minutes: 15
+
+paths:
+  raw_dir: "data/raw"
+  json_dir: "results/json"
+  plot_dir: "results/plots"
+  log_dir: "logs"
+  state_dir: "state"
+
+run:
+  sleep_seconds_between_jobs: 5
+
+  # 解析成功後に raw を削除する
+  delete_raw_after_success: true
+
+  # エラー時は raw を残す
+  retain_failed_files: true
+
+  # グラフ生成
+  generate_plots: true
+  graph_type: "all"
+
+  # analyze_one.py 用
+  progress_every: 1000000
+  max_packets: null
