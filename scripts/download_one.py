@@ -6,8 +6,9 @@ import sys
 import urllib.request
 from pathlib import Path
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_URL = "https://mawi.wide.ad.jp/mawi/ditl/ditl2026/202604080000.pcap.gz"
-DEFAULT_OUTDIR = Path("data/raw")
+DEFAULT_OUTDIR = REPO_ROOT / "data/raw"
 
 
 def format_size(num_bytes: int) -> str:
@@ -23,6 +24,11 @@ def format_size(num_bytes: int) -> str:
             return f"{size:.2f} {unit}"
         size /= 1024
     return f"{num_bytes} B"
+
+
+def resolve_from_repo_root(path: Path) -> Path:
+    """相対パスをリポジトリルート基準の絶対パスに変換する。"""
+    return path if path.is_absolute() else REPO_ROOT / path
 
 
 def download_file(url: str, outdir: Path, force: bool = False) -> Path:
@@ -100,8 +106,9 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     """コマンドライン処理を実行し、プロセスの終了コードを返す。"""
     args = parse_args()
+    outdir = resolve_from_repo_root(args.outdir)
     try:
-        download_file(args.url, args.outdir, force=args.force)
+        download_file(args.url, outdir, force=args.force)
         return 0
     except Exception as e:
         print(f"[error] {e}", file=sys.stderr)
