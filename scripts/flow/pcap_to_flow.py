@@ -1,127 +1,368 @@
-import dpkt
-import socket
+#!/usr/bin/env python3
+from __future__ import annotations
 
 import argparse
-import sys
 import csv
+import gzip
+import socket
+import sys
 import time
+from dataclasses import dataclass
+from pathlib import Path
+from typing import BinaryIO, Iterator
 
-PROTOCOLS = [dpkt.ip.IP_PROTO_TCP, dpkt.ip.IP_PROTO_UDP]
+import dpkt
+
+PROTOCOLS: tuple[int, ...] = (dpkt.ip.IP_PROTO_TCP, dpkt.ip.IP_PROTO_UDP)
 
 
+@dataclass(frozen=True)
+class Endpoint:
+    ip: str
+    port: int
+
+
+@dataclass(frozen=True)
+class FlowKey:
+    endpoint_a: Endpoint
+    endpoint_b: Endpoint
+    protocol: int
+
+
+@dataclass
 class Flow:
-    def __init__(self, first_timestamp: float, packet_byte: int) -> None:
-        self.start_time = first_timestamp
-        self.end_time = first_timestamp
-        self.packet_count = 1
-        self.byte_count = packet_byte
-        
-    def update(self, timestamp: float, packet_byte: int) -> None:
+    flow_id: int
+    start_time: float
+    end_time: float
+    src_ip: str
+    src_port: int
+    dst_ip: str
+    dst_port: int
+    protocol: int
+    packet_count: int = 0
+    byte_count: int = 0
+    packets_from_src: int = 0
+    packets_from_dst: int = 0
+    bytes_from_src: int = 0
+    bytes_from_dst: int = 0
+    syn_count: int = 0
+    syn_ack_count: int = 0
+    ack_count: int = 0
+    fin_count: int = 0
+    rst_count: int = 0
+
+    def update(
+        self,
+        timestamp: float,
+        packet_byte: int,
+        is_from_src: bool,
+        tcp_flags: int | None,
+    ) -> None:
         self.end_time = timestamp
         self.packet_count += 1
+        # byte_count is based on the captured Ethernet frame length, i.e. len(buf).
         self.byte_count += packet_byte
-        
-    def calc_duration(self) -> float:
+
+        if is_from_src:
+            self.packets_from_src += 1
+            self.bytes_from_src += packet_byte
+        else:
+            self.packets_from_dst += 1
+            self.bytes_from_dst += packet_byte
+
+        if tcp_flags is None:
+            return
+
+        if tcp_flags & dpkt.tcp.TH_SYN:
+            self.syn_count += 1
+        if (tcp_flags & dpkt.tcp.TH_SYN) and (tcp_flags & dpkt.tcp.TH_ACK):
+            self.syn_ack_count += 1
+        if tcp_flags & dpkt.tcp.TH_ACK:
+            self.ack_count += 1
+        if tcp_flags & dpkt.tcp.TH_FIN:
+            self.fin_count += 1
+        if tcp_flags & dpkt.tcp.TH_RST:
+            self.rst_count += 1
+
+    def duration(self) -> float:
         return self.end_time - self.start_time
-    
-    
+
+    def pps(self) -> float:
+        duration = self.duration()
+        return self.packet_count / duration if duration > 0 else 0.0
+
+    def bps(self) -> float:
+        duration = self.duration()
+        return self.byte_count / duration if duration > 0 else 0.0
+
+
+@dataclass
+class Stats:
+    total_packets: int = 0
+    skipped_non_ip: int = 0
+    skipped_non_tcp_udp: int = 0
+    parse_errors: int = 0
+
+
 def inet_to_str(addr: bytes) -> str:
     try:
-        return socket.inet_ntop(socket.AF_INET, addr)
+        if len(addr) == 4:
+            return socket.inet_ntop(socket.AF_INET, addr)
+        if len(addr) == 16:
+            return socket.inet_ntop(socket.AF_INET6, addr)
+    except OSError:
+        pass
+    return addr.hex()
+
+
+def open_input_file(input_path: Path) -> BinaryIO:
+    if input_path.suffix == ".gz":
+        return gzip.open(input_path, "rb")
+    return input_path.open("rb")
+
+
+def open_packet_reader(fp: BinaryIO) -> Iterator[tuple[float, bytes]]:
+    try:
+        return dpkt.pcap.Reader(fp)
     except ValueError:
-        return socket.inet_ntop(socket.AF_INET6, addr)
-
-def get_flow_fivetuple(
-    ip: dpkt.ip.IP | dpkt.ip6.IP6, 
-    proto: int
-) -> tuple[str, str, int, int, int]:
-    src_ip = inet_to_str(ip.src) # type: ignore
-    dst_ip = inet_to_str(ip.dst) # type: ignore    
-    trans = ip.data
-    src_port = getattr(trans, 'sport', 0)
-    dst_port = getattr(trans, 'dport', 0)    
-    endpoints = sorted([(src_ip, src_port), (dst_ip, dst_port)])
-    return (endpoints[0][0], endpoints[1][0], endpoints[0][1], endpoints[1][1], proto)
-    
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()    
-    parser.add_argument("--input_path", type=str)
-    parser.add_argument("--output_path", type=str)    
-    args = parser.parse_args()
-    
-    input_path = args.input_path
-    output_path = args.output_path
-    print(f"Processing: {input_path}")
-    
-    flow_dict = {}
-    start_timer = time.perf_counter()
-    
-    with open(input_path, 'rb') as f:
-
+        fp.seek(0)
         try:
-            pcap = dpkt.pcap.Reader(f)
-        except ValueError:
-            f.seek(0)
-            try:
-                pcap = dpkt.pcapng.Reader(f)
-            except ValueError:
-                sys.exit(1)
+            return dpkt.pcapng.Reader(fp)
+        except ValueError as exc:
+            raise ValueError(f"unsupported capture format: {exc}") from exc
 
-        
-        for ts, buf in pcap:
-            # parse eth
+
+def get_ip_protocol(ip: dpkt.ip.IP | dpkt.ip6.IP6) -> int:
+    if isinstance(ip, dpkt.ip.IP):
+        return ip.p
+    return ip.nxt
+
+
+def get_transport_layer(ip: dpkt.ip.IP | dpkt.ip6.IP6) -> dpkt.tcp.TCP | dpkt.udp.UDP:
+    transport = ip.data
+    if isinstance(transport, (dpkt.tcp.TCP, dpkt.udp.UDP)):
+        return transport
+    raise TypeError("unsupported transport protocol")
+
+
+def normalize_flow_key(
+    src_ip: str,
+    dst_ip: str,
+    src_port: int,
+    dst_port: int,
+    protocol: int,
+) -> FlowKey:
+    # Normalize the bidirectional aggregation key so A->B and B->A map to one flow.
+    endpoint_src = Endpoint(src_ip, src_port)
+    endpoint_dst = Endpoint(dst_ip, dst_port)
+    endpoint_a, endpoint_b = sorted((endpoint_src, endpoint_dst), key=lambda ep: (ep.ip, ep.port))
+    return FlowKey(endpoint_a=endpoint_a, endpoint_b=endpoint_b, protocol=protocol)
+
+
+def is_packet_from_initial_src(flow: Flow, src_ip: str, src_port: int) -> bool:
+    return flow.src_ip == src_ip and flow.src_port == src_port
+
+
+def write_csv(output_path: Path, flows: list[Flow]) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with output_path.open("w", newline="", encoding="utf-8") as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(
+            [
+                "flow_id",
+                "start_time",
+                "end_time",
+                "src_ip",
+                "src_port",
+                "dst_ip",
+                "dst_port",
+                "protocol",
+                "duration",
+                "packet_count",
+                "byte_count",
+                "pps",
+                "bps",
+                "packets_from_src",
+                "packets_from_dst",
+                "bytes_from_src",
+                "bytes_from_dst",
+                "syn_count",
+                "syn_ack_count",
+                "ack_count",
+                "fin_count",
+                "rst_count",
+            ]
+        )
+
+        for flow in flows:
+            writer.writerow(
+                [
+                    flow.flow_id,
+                    f"{flow.start_time:.6f}",
+                    f"{flow.end_time:.6f}",
+                    flow.src_ip,
+                    flow.src_port,
+                    flow.dst_ip,
+                    flow.dst_port,
+                    flow.protocol,
+                    f"{flow.duration():.6f}",
+                    flow.packet_count,
+                    flow.byte_count,
+                    f"{flow.pps():.6f}",
+                    f"{flow.bps():.6f}",
+                    flow.packets_from_src,
+                    flow.packets_from_dst,
+                    flow.bytes_from_src,
+                    flow.bytes_from_dst,
+                    flow.syn_count,
+                    flow.syn_ack_count,
+                    flow.ack_count,
+                    flow.fin_count,
+                    flow.rst_count,
+                ]
+            )
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Aggregate TCP/UDP packets from pcap/pcapng into bidirectional flows."
+    )
+    parser.add_argument("--input", dest="input", type=Path, help="input capture path")
+    parser.add_argument("--output", dest="output", type=Path, help="output CSV path")
+    parser.add_argument("--input_path", dest="input_path", type=Path, help="legacy input path")
+    parser.add_argument("--output_path", dest="output_path", type=Path, help="legacy output path")
+    parser.add_argument(
+        "--progress-every",
+        type=int,
+        default=1_000_000,
+        help="show progress every N packets; 0 disables progress output",
+    )
+    return parser.parse_args()
+
+
+def resolve_cli_paths(args: argparse.Namespace) -> tuple[Path, Path]:
+    input_path = args.input or args.input_path
+    output_path = args.output or args.output_path
+    if input_path is None or output_path is None:
+        raise ValueError("--input/--output or --input_path/--output_path are required")
+    return input_path, output_path
+
+
+def aggregate_flows(
+    input_path: Path,
+    progress_every: int,
+) -> tuple[list[Flow], Stats]:
+    flow_dict: dict[FlowKey, Flow] = {}
+    stats = Stats()
+    next_flow_id = 1
+    started = time.perf_counter()
+
+    with open_input_file(input_path) as fp:
+        packet_reader = open_packet_reader(fp)
+
+        # No timeout is applied: flows span the whole capture and are closed only at EOF.
+        for ts, buf in packet_reader:
+            stats.total_packets += 1
+
+            if progress_every > 0 and stats.total_packets % progress_every == 0:
+                elapsed = time.perf_counter() - started
+                rate = stats.total_packets / elapsed if elapsed > 0 else 0.0
+                print(
+                    f"[progress] packets={stats.total_packets:,} elapsed={elapsed:.1f}s rate={rate:,.0f} pkt/s",
+                    flush=True,
+                )
+
             try:
                 eth = dpkt.ethernet.Ethernet(buf)
-            except:
+            except Exception:
+                stats.parse_errors += 1
                 continue
-            
-            # parse ip
+
             if not isinstance(eth.data, (dpkt.ip.IP, dpkt.ip6.IP6)):
+                stats.skipped_non_ip += 1
                 continue
             ip = eth.data
 
-            # check protocol
-            if isinstance(ip, dpkt.ip.IP):
-                proto = ip.p # type: ignore
-            elif isinstance(ip, dpkt.ip6.IP6):
-                proto = ip.nxt # type: ignore
+            proto = get_ip_protocol(ip)
             if proto not in PROTOCOLS:
+                stats.skipped_non_tcp_udp += 1
                 continue
-            
+
             try:
-                fivetuple = get_flow_fivetuple(ip, proto)
-                packet_byte = len(buf)
-                if fivetuple not in flow_dict:
-                    # create new flow
-                    flow_dict[fivetuple] = Flow(ts, packet_byte)
-                else:
-                    # update exist flow
-                    flow_dict[fivetuple].update(ts, packet_byte)
+                src_ip = inet_to_str(ip.src)
+                dst_ip = inet_to_str(ip.dst)
+                transport = get_transport_layer(ip)
+                src_port = int(getattr(transport, "sport"))
+                dst_port = int(getattr(transport, "dport"))
             except Exception:
+                stats.parse_errors += 1
                 continue
-        
-        with open(output_path, 'w', newline='') as csvfile:
-            writer = csv.writer(csvfile)
-            writer.writerow(['timestamp', 'src_ip', 'dst_ip', 'src_port', 'dst_port', 'protocol', 
-                            'duration', 'packet_num', 'packet_persec', 'byte_num', 'byte_persec'])
-            
-            for fivetuple, flow in flow_dict.items():
-                duration = flow.calc_duration()
-                if duration > 0:
-                    packet_persec = flow.packet_count / duration
-                    byte_persec = flow.byte_count / duration
-                else:
-                    packet_persec = 0.0
-                    byte_persec = 0.0
-                
-                writer.writerow([
-                    flow.start_time, fivetuple[0], fivetuple[1], fivetuple[2], fivetuple[3], fivetuple[4],
-                    f"{duration:.6f}", flow.packet_count, f"{packet_persec:.3f}", flow.byte_count, f"{byte_persec:.3f}"
-                ])
-            
-    end_timer = time.perf_counter()
-    process_time = end_timer - start_timer
-    
-    print(f"flow_num = {len(flow_dict)}")
-    print(f"process time = {process_time:.3f}")
+
+            flow_key = normalize_flow_key(src_ip, dst_ip, src_port, dst_port, proto)
+            flow = flow_dict.get(flow_key)
+
+            if flow is None:
+                # Output src/dst are fixed to the first observed packet direction, not the sorted key order.
+                flow = Flow(
+                    flow_id=next_flow_id,
+                    start_time=ts,
+                    end_time=ts,
+                    src_ip=src_ip,
+                    src_port=src_port,
+                    dst_ip=dst_ip,
+                    dst_port=dst_port,
+                    protocol=proto,
+                )
+                flow_dict[flow_key] = flow
+                next_flow_id += 1
+
+            packet_byte = len(buf)
+            tcp_flags = transport.flags if isinstance(transport, dpkt.tcp.TCP) else None
+            flow.update(
+                timestamp=ts,
+                packet_byte=packet_byte,
+                is_from_src=is_packet_from_initial_src(flow, src_ip, src_port),
+                tcp_flags=tcp_flags,
+            )
+
+    flows = sorted(flow_dict.values(), key=lambda flow: flow.flow_id)
+    return flows, stats
+
+
+def main() -> int:
+    args = parse_args()
+
+    try:
+        input_path, output_path = resolve_cli_paths(args)
+    except ValueError as exc:
+        print(f"[error] {exc}", file=sys.stderr)
+        return 1
+
+    if not input_path.exists():
+        print(f"[error] input not found: {input_path}", file=sys.stderr)
+        return 1
+
+    start_timer = time.perf_counter()
+    print(f"Processing: {input_path}")
+
+    try:
+        flows, stats = aggregate_flows(input_path, progress_every=args.progress_every)
+        write_csv(output_path, flows)
+    except Exception as exc:
+        print(f"[error] {exc}", file=sys.stderr)
+        return 1
+
+    process_time = time.perf_counter() - start_timer
+
+    print(f"total_packets = {stats.total_packets}")
+    print(f"skipped_non_ip = {stats.skipped_non_ip}")
+    print(f"skipped_non_tcp_udp = {stats.skipped_non_tcp_udp}")
+    print(f"parse_errors = {stats.parse_errors}")
+    print(f"flow_num = {len(flows)}")
+    print(f"process_time = {process_time:.3f}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
