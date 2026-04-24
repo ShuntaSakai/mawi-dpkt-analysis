@@ -13,6 +13,8 @@ from typing import BinaryIO, Iterator
 
 import dpkt
 
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+DEFAULT_OUTPUT_DIR = REPO_ROOT / "results/flows"
 PROTOCOLS: tuple[int, ...] = (dpkt.ip.IP_PROTO_TCP, dpkt.ip.IP_PROTO_UDP)
 
 
@@ -119,6 +121,19 @@ def open_input_file(input_path: Path) -> BinaryIO:
     if input_path.suffix == ".gz":
         return gzip.open(input_path, "rb")
     return input_path.open("rb")
+
+
+def resolve_from_repo_root(path: Path) -> Path:
+    return path if path.is_absolute() else REPO_ROOT / path
+
+
+def build_default_output_path(input_path: Path) -> Path:
+    filename = input_path.name
+    for suffix in (".pcapng.gz", ".pcap.gz", ".pcapng", ".pcap"):
+        if filename.endswith(suffix):
+            filename = filename[: -len(suffix)]
+            break
+    return DEFAULT_OUTPUT_DIR / f"{filename}.csv"
 
 
 def open_packet_reader(fp: BinaryIO) -> Iterator[tuple[float, bytes]]:
@@ -229,7 +244,12 @@ def parse_args() -> argparse.Namespace:
         description="Aggregate TCP/UDP packets from pcap/pcapng into bidirectional flows."
     )
     parser.add_argument("--input", dest="input", type=Path, help="input capture path")
-    parser.add_argument("--output", dest="output", type=Path, help="output CSV path")
+    parser.add_argument(
+        "--output",
+        dest="output",
+        type=Path,
+        help=f"output CSV path (default: {DEFAULT_OUTPUT_DIR}/<input_name>.csv)",
+    )
     parser.add_argument("--input_path", dest="input_path", type=Path, help="legacy input path")
     parser.add_argument("--output_path", dest="output_path", type=Path, help="legacy output path")
     parser.add_argument(
@@ -242,10 +262,17 @@ def parse_args() -> argparse.Namespace:
 
 
 def resolve_cli_paths(args: argparse.Namespace) -> tuple[Path, Path]:
-    input_path = args.input or args.input_path
-    output_path = args.output or args.output_path
-    if input_path is None or output_path is None:
-        raise ValueError("--input/--output or --input_path/--output_path are required")
+    input_arg = args.input or args.input_path
+    if input_arg is None:
+        raise ValueError("--input or --input_path is required")
+
+    input_path = resolve_from_repo_root(input_arg)
+    output_arg = args.output or args.output_path
+    output_path = (
+        resolve_from_repo_root(output_arg)
+        if output_arg is not None
+        else build_default_output_path(input_path)
+    )
     return input_path, output_path
 
 
