@@ -60,7 +60,7 @@ class Flow:
     ) -> None:
         self.end_time = timestamp
         self.packet_count += 1
-        # byte_count is based on the captured Ethernet frame length, i.e. len(buf).
+        # byte_count は pcap に記録された Ethernet フレーム長 len(buf) ベースで集計する。
         self.byte_count += packet_byte
 
         if is_from_src:
@@ -152,7 +152,7 @@ def normalize_flow_key(
     dst_port: int,
     protocol: int,
 ) -> FlowKey:
-    # Normalize the bidirectional aggregation key so A->B and B->A map to one flow.
+    # 双方向フローとして集約するため、A->B と B->A が同じキーになるように正規化する。
     endpoint_src = Endpoint(src_ip, src_port)
     endpoint_dst = Endpoint(dst_ip, dst_port)
     endpoint_a, endpoint_b = sorted((endpoint_src, endpoint_dst), key=lambda ep: (ep.ip, ep.port))
@@ -261,7 +261,7 @@ def aggregate_flows(
     with open_input_file(input_path) as fp:
         packet_reader = open_packet_reader(fp)
 
-        # No timeout is applied: flows span the whole capture and are closed only at EOF.
+        # タイムアウトは設けず、フローはキャプチャ全体を通して集約し EOF で確定する。
         for ts, buf in packet_reader:
             stats.total_packets += 1
 
@@ -303,7 +303,7 @@ def aggregate_flows(
             flow = flow_dict.get(flow_key)
 
             if flow is None:
-                # Output src/dst are fixed to the first observed packet direction, not the sorted key order.
+                # 出力用の src/dst はソート順ではなく、最初に観測されたパケット方向で固定する。
                 flow = Flow(
                     flow_id=next_flow_id,
                     start_time=ts,
