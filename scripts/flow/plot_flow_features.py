@@ -355,7 +355,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--outdir",
         type=Path,
-        default=Path("results/flow_plots"),
+        default=Path("results/flow_plots/all"),
         help="base output directory for plot images",
     )
     parser.add_argument(

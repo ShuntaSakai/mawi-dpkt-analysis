@@ -14,7 +14,7 @@ from typing import BinaryIO, Iterator
 import dpkt
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-DEFAULT_OUTPUT_DIR = REPO_ROOT / "results/flows"
+DEFAULT_OUTPUT_DIR = REPO_ROOT / "results/flows/all"
 PROTOCOLS: tuple[int, ...] = (dpkt.ip.IP_PROTO_TCP, dpkt.ip.IP_PROTO_UDP)
 
 

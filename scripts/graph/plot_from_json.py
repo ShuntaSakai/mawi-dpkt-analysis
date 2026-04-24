@@ -8,7 +8,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_OUTDIR = REPO_ROOT / "results/plots"
+DEFAULT_OUTDIR = REPO_ROOT / "results/plots/all"
 
 
 def load_json(path: Path) -> dict:

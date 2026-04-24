@@ -15,7 +15,7 @@ import dpkt
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_INPUT = REPO_ROOT / "data/raw/202604080000.pcap.gz"
-DEFAULT_OUTDIR = REPO_ROOT / "results/json"
+DEFAULT_OUTDIR = REPO_ROOT / "results/json/all"
 
 
 def inet_to_str(addr: bytes) -> str:

@@ -582,7 +582,7 @@ def main() -> int:
     input_path = resolve_from_repo_root(args.input)
 
     if args.output is None:
-        output_path = REPO_ROOT / "results/features" / f"{input_path.stem}_features.json"
+        output_path = REPO_ROOT / "results/features/all" / f"{input_path.stem}_features.json"
     else:
         output_path = resolve_from_repo_root(args.output)
 
