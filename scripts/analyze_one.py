@@ -340,7 +340,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     """コマンドライン処理を実行し、プロセスの終了コードを返す。"""
     args = parse_args()
-    input_path = args.input
+    input_path = resolve_from_repo_root(args.input)
     outdir = resolve_from_repo_root(args.outdir)
 
     if not input_path.exists():
