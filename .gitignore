@@ -10,7 +10,8 @@ data/interim/
 data/processed/
 
 # Results
-results/
+results/*
+!results/README.md
 logs/
 
 # State
