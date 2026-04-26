@@ -22,6 +22,7 @@
   - `--aguri`: `aguri_candidates.csv`
 - 主な任意オプション:
   - `--config`: 既定は `config/prefix_selection.yaml`
+    - 小さいサンプル PCAP では `config/prefix_selection.sample.yaml` を使うと最後まで疎通確認しやすくなります
   - `--out-dir`: 省略時は `results/prefix/<aguri_dataset_name>/`
 - 既定の出力:
   - `prefix_evaluation.csv`
@@ -115,6 +116,7 @@ results/comparison/<dataset>/
   - aguri の候補を flow 特徴量で再評価します
   - flow 数、packet 数、byte 数、短命 flow 比率、小規模 flow 比率、SYN-only-like 比率などを用いて選定します
   - `scan_candidate` や `passes_filters` を付与して、候補の性質を保持します
+  - flow CSV 側で宛先 prefix に一致しない候補も `prefix_evaluation.csv` に残し、`match_status` で確認できるようにします
   - `normalized_dst_prefix` 列を含む出力を作り、後段の抽出処理につなげます
 
 ### `filter_flows_by_prefix.py`

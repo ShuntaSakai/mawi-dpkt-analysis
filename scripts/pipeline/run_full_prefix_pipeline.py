@@ -199,6 +199,115 @@ def load_selected_prefixes(csv_path: Path) -> list[str]:
     return prefixes
 
 
+def load_prefix_evaluation_rows(csv_path: Path) -> list[dict[str, str]]:
+    with csv_path.open("r", encoding="utf-8", newline="") as handle:
+        return list(csv.DictReader(handle))
+
+
+def parse_scalar_yaml_value(raw: str) -> str | int | float | bool:
+    text = raw.strip()
+    if not text:
+        return ""
+    if text.lower() in {"true", "false"}:
+        return text.lower() == "true"
+    try:
+        if any(char in text for char in (".", "e", "E")):
+            return float(text)
+        return int(text)
+    except ValueError:
+        return text
+
+
+def explain_filter_failures(row: dict[str, str], config: dict[str, float | int]) -> list[str]:
+    reasons: list[str] = []
+
+    def int_value(key: str) -> int:
+        return int(float(str(row.get(key, "0") or "0")))
+
+    def float_value(key: str) -> float:
+        return float(str(row.get(key, "0") or "0"))
+
+    if row.get("match_status") == "no_matching_flows":
+        reasons.append("no flows matched this destination prefix in flow CSV")
+        return reasons
+
+    flow_count = int_value("flow_count")
+    packet_count = int_value("packet_count")
+    byte_count = int_value("byte_count")
+    short_flow_ratio = float_value("short_flow_ratio")
+    tiny_flow_ratio = float_value("tiny_flow_ratio")
+    syn_only_like_ratio = float_value("syn_only_like_ratio")
+    rst_observed_ratio = float_value("rst_observed_ratio")
+    prefix_is_broader_than_target = str(row.get("prefix_is_broader_than_target", "")).strip().lower() == "true"
+
+    if flow_count < int(config["min_flows"]):
+        reasons.append(f"flow_count {flow_count} < min_flows {config['min_flows']}")
+    if packet_count < int(config["min_packets"]):
+        reasons.append(f"packet_count {packet_count} < min_packets {config['min_packets']}")
+    if byte_count < int(config["min_bytes"]):
+        reasons.append(f"byte_count {byte_count} < min_bytes {config['min_bytes']}")
+    if short_flow_ratio > float(config["max_short_flow_ratio"]):
+        reasons.append(
+            f"short_flow_ratio {short_flow_ratio:.3f} > max_short_flow_ratio {config['max_short_flow_ratio']}"
+        )
+    if tiny_flow_ratio > float(config["max_tiny_flow_ratio"]):
+        reasons.append(
+            f"tiny_flow_ratio {tiny_flow_ratio:.3f} > max_tiny_flow_ratio {config['max_tiny_flow_ratio']}"
+        )
+    if syn_only_like_ratio > float(config["max_syn_only_like_ratio"]):
+        reasons.append(
+            "syn_only_like_ratio "
+            f"{syn_only_like_ratio:.3f} > max_syn_only_like_ratio {config['max_syn_only_like_ratio']}"
+        )
+    if rst_observed_ratio > float(config["max_rst_observed_ratio"]):
+        reasons.append(
+            f"rst_observed_ratio {rst_observed_ratio:.3f} > max_rst_observed_ratio {config['max_rst_observed_ratio']}"
+        )
+    if prefix_is_broader_than_target:
+        reasons.append("prefix is broader than target prefix_len")
+
+    return reasons
+
+
+def load_selection_config(config_path: Path) -> dict[str, float | int]:
+    with config_path.open("r", encoding="utf-8") as handle:
+        root: dict[str, float | int | dict[str, float | int] | str | bool] = {}
+        nested_key: str | None = None
+        for line_number, raw_line in enumerate(handle, start=1):
+            line = raw_line.rstrip("\n")
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            if line.startswith((" ", "\t")):
+                if nested_key is None:
+                    raise RuntimeError(f"Invalid nested YAML at line {line_number}: {line}")
+                child_text = stripped
+                if ":" not in child_text:
+                    raise RuntimeError(f"Invalid YAML mapping at line {line_number}: {line}")
+                child_key, child_value = child_text.split(":", 1)
+                nested = root.setdefault(nested_key, {})
+                if not isinstance(nested, dict):
+                    raise RuntimeError(f"Invalid YAML structure near line {line_number}: {line}")
+                nested[child_key.strip()] = parse_scalar_yaml_value(child_value)
+                continue
+
+            if ":" not in stripped:
+                raise RuntimeError(f"Invalid YAML mapping at line {line_number}: {line}")
+            key, value = stripped.split(":", 1)
+            key = key.strip()
+            if value.strip() == "":
+                root[key] = {}
+                nested_key = key
+            else:
+                root[key] = parse_scalar_yaml_value(value)
+                nested_key = None
+        config = root
+
+    if not isinstance(config, dict):
+        raise RuntimeError(f"Config file must contain a YAML mapping: {config_path}")
+    return config
+
+
 def list_prefix_flow_files(dataset: str) -> list[Path]:
     return sorted(
         path
@@ -392,7 +501,24 @@ def main() -> int:
 
         selected_count = count_data_rows(selected_prefixes)
         if selected_count == 0:
-            print_warn("selected_prefixes.csv is empty. No prefix flow CSV was created.")
+            print_warn(f"selected_prefixes.csv is empty: {selected_prefixes}")
+            print_warn(f"prefix evaluation is available for inspection: {prefix_evaluation_path(dataset)}")
+            print_warn(f"selection config used: {config_path}")
+            try:
+                config = load_selection_config(config_path)
+                for row in load_prefix_evaluation_rows(prefix_evaluation_path(dataset)):
+                    prefix = row.get("normalized_dst_prefix", row.get("dst_prefix", "(unknown)"))
+                    reasons = explain_filter_failures(row, config)
+                    if reasons:
+                        print_warn(f"{prefix}: {'; '.join(reasons)}")
+            except (OSError, RuntimeError, ValueError) as exc:
+                print_warn(f"Failed to summarize prefix filter reasons: {exc}")
+            print_warn(
+                "Downstream prefix-specific flow extraction, prefix features, and comparison plots were skipped."
+            )
+            print_warn(
+                "If this is a small sample pcap, re-run with --config config/prefix_selection.sample.yaml."
+            )
             return 0
 
         selected_prefix_list = load_selected_prefixes(selected_prefixes)

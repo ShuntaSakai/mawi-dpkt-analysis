@@ -9,6 +9,7 @@
 - prefix 評価を行う場合:
   - `scripts/prefix/evaluate_prefixes.py` は既定で `config/prefix_selection.yaml` を参照します
   - 別ファイルを使う場合だけ `--config <path>` を指定します
+  - 小さいサンプル PCAP では `config/prefix_selection.sample.yaml` の利用を優先してください
 - 旧バッチ系を使う場合:
   - `config/settings.yaml` を参照します
   - 現行の flow / prefix パイプラインとは出力先も役割も異なります
@@ -252,6 +253,24 @@ score_weights:
 - 小規模データで本番向け閾値をそのまま使うと、候補がほとんど残らないことがあります
 - `scan_candidate` が立っても、研究対象として保持する設計です
 - 解釈は断定ではなく、「可能性がある」「示唆する」という扱いを前提にしてください
+
+### `prefix_selection.sample.yaml`
+
+- 役割:
+  - `http_traffic.pcap.gz` のような非常に小さいサンプル PCAP でも、prefix パイプライン全体の疎通確認をしやすくするための設定です
+- 想定用途:
+  - `flow_num` や `total_packets` が小さく、本番閾値では `selected_prefixes.csv` が空になりやすいケース
+- 方針:
+  - `min_flows`、`min_packets`、`min_bytes` を 1 まで下げます
+  - 比率系の閾値と score 重みは本番設定と揃え、解釈軸はできるだけ維持します
+- 使い方:
+
+```bash
+python scripts/pipeline/run_full_prefix_pipeline.py \
+  --pcap data/raw/http_traffic.pcap.gz \
+  --config config/prefix_selection.sample.yaml \
+  --force
+```
 
 ### `settings.yaml`
 

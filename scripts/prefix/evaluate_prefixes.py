@@ -32,6 +32,67 @@ def require_yaml() -> Any:
         yaml = yaml_module
     return yaml
 
+
+def parse_scalar_yaml_value(raw: str) -> Any:
+    text = raw.strip()
+    if not text:
+        return ""
+    if text.lower() in {"true", "false"}:
+        return text.lower() == "true"
+    try:
+        if any(char in text for char in (".", "e", "E")):
+            return float(text)
+        return int(text)
+    except ValueError:
+        return text
+
+
+def load_yaml_mapping_file(path: Path) -> dict[str, Any]:
+    try:
+        yaml_module = require_yaml()
+    except ModuleNotFoundError:
+        yaml_module = None
+
+    with path.open("r", encoding="utf-8") as handle:
+        if yaml_module is not None:
+            config = yaml_module.safe_load(handle)
+        else:
+            root: dict[str, Any] = {}
+            nested_key: str | None = None
+            for line_number, raw_line in enumerate(handle, start=1):
+                line = raw_line.rstrip("\n")
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#"):
+                    continue
+                if line.startswith((" ", "\t")):
+                    if nested_key is None:
+                        raise ValueError(f"Invalid nested YAML at line {line_number}: {line}")
+                    child_text = stripped
+                    if ":" not in child_text:
+                        raise ValueError(f"Invalid YAML mapping at line {line_number}: {line}")
+                    child_key, child_value = child_text.split(":", 1)
+                    nested = root.setdefault(nested_key, {})
+                    if not isinstance(nested, dict):
+                        raise ValueError(f"Invalid YAML structure near line {line_number}: {line}")
+                    nested[child_key.strip()] = parse_scalar_yaml_value(child_value)
+                    continue
+
+                if ":" not in stripped:
+                    raise ValueError(f"Invalid YAML mapping at line {line_number}: {line}")
+                key, value = stripped.split(":", 1)
+                key = key.strip()
+                if value.strip() == "":
+                    root[key] = {}
+                    nested_key = key
+                else:
+                    root[key] = parse_scalar_yaml_value(value)
+                    nested_key = None
+            config = root
+
+    if not isinstance(config, dict):
+        raise ValueError("Config file must contain a YAML mapping.")
+    return config
+
 REQUIRED_CONFIG_KEYS = {
     "prefix_len",
     "min_flows",
@@ -97,6 +158,7 @@ OUTPUT_COLUMNS = [
     "src_prefix",
     "dst_prefix",
     "normalized_dst_prefix",
+    "match_status",
     "ip_version",
     "prefix_length",
     "prefix_is_host",
@@ -195,14 +257,8 @@ def ensure_file_exists(path: Path, label: str) -> None:
 
 
 def load_config(path: Path) -> tuple[dict[str, Any], list[str]]:
-    yaml_module = require_yaml()
     ensure_file_exists(path, "Config file")
-
-    with path.open("r", encoding="utf-8") as handle:
-        config = yaml_module.safe_load(handle)
-
-    if not isinstance(config, dict):
-        raise ValueError("Config file must contain a YAML mapping.")
+    config = load_yaml_mapping_file(path)
 
     missing_keys = sorted(REQUIRED_CONFIG_KEYS - set(config))
     if missing_keys:
@@ -455,6 +511,7 @@ def evaluate_prefix_metrics(
 
     return {
         "normalized_dst_prefix": prefix_info.normalized,
+        "match_status": "matched",
         "ip_version": prefix_info.ip_version,
         "prefix_length": prefix_info.prefix_length,
         "prefix_is_host": prefix_info.is_host,
@@ -506,12 +563,6 @@ def build_evaluation_rows(
             metrics_cache[cache_key] = evaluate_prefix_metrics(flows, prefix_info, config)
 
         metrics = metrics_cache[cache_key]
-        if metrics is None:
-            warnings.append(
-                f"No flows matched dst_prefix={prefix_info.original} (normalized={prefix_info.normalized})."
-            )
-            continue
-
         row = {
             "aggregate_id": aguri_row["aggregate_id"],
             "src_prefix": aguri_row["src_prefix"],
@@ -526,7 +577,50 @@ def build_evaluation_rows(
             "aguri_udp_packet_ratio": float(aguri_row.get("udp_packet_ratio", 0.0)),
             "protocol_breakdown": aguri_row.get("protocol_breakdown", ""),
         }
-        row.update(metrics)
+        if metrics is None:
+            warnings.append(
+                f"No flows matched dst_prefix={prefix_info.original} (normalized={prefix_info.normalized})."
+            )
+            row.update(
+                {
+                    "normalized_dst_prefix": prefix_info.normalized,
+                    "match_status": "no_matching_flows",
+                    "ip_version": prefix_info.ip_version,
+                    "prefix_length": prefix_info.prefix_length,
+                    "prefix_is_host": prefix_info.is_host,
+                    "prefix_is_broader_than_target": (
+                        prefix_info.ip_version == 4
+                        and not prefix_info.is_host
+                        and prefix_info.prefix_length < config["prefix_len"]
+                    ),
+                    "prefix_specificity_ratio": (
+                        min(prefix_info.prefix_length / config["prefix_len"], 1.0)
+                        if prefix_info.ip_version == 4
+                        and not prefix_info.is_host
+                        and config["prefix_len"] > 0
+                        else 1.0
+                    ),
+                    "flow_count": 0,
+                    "packet_count": 0,
+                    "byte_count": 0,
+                    "tcp_flow_ratio": 0.0,
+                    "udp_flow_ratio": 0.0,
+                    "other_flow_ratio": 0.0,
+                    "dominant_l4_flow_ratio": 0.0,
+                    "avg_duration": 0.0,
+                    "median_duration": 0.0,
+                    "avg_packet_size": 0.0,
+                    "short_flow_ratio": 0.0,
+                    "tiny_flow_ratio": 0.0,
+                    "syn_only_like_ratio": 0.0,
+                    "rst_observed_ratio": 0.0,
+                    "avg_packets_from_src_ratio": 0.0,
+                    "avg_bytes_from_src_ratio": 0.0,
+                    "scan_candidate": False,
+                }
+            )
+        else:
+            row.update(metrics)
         rows.append(row)
 
     return rows, warnings
@@ -580,6 +674,17 @@ def finalize_columns(df: pd.DataFrame) -> pd.DataFrame:
         if column not in finalized.columns:
             finalized[column] = pd.Series(dtype=float)
 
+    string_columns = [
+        "src_prefix",
+        "dst_prefix",
+        "normalized_dst_prefix",
+        "match_status",
+        "protocol_breakdown",
+    ]
+    for column in string_columns:
+        if column in finalized.columns:
+            finalized[column] = finalized[column].fillna("").astype(str)
+
     numeric_columns = [
         "aguri_byte_ratio",
         "aguri_packet_ratio",
@@ -615,7 +720,9 @@ def finalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     ]
     for column in boolean_columns:
         if column in finalized.columns:
-            finalized[column] = finalized[column].fillna(False).astype(bool)
+            finalized[column] = finalized[column].map(
+                lambda value: value if isinstance(value, bool) else str(value).strip().lower() == "true"
+            )
 
     int_columns = [
         "aggregate_id",
