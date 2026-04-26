@@ -9,13 +9,21 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import BinaryIO, Iterator
-
-import dpkt
+from typing import Any, BinaryIO, Iterator
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "results/flows/all"
-PROTOCOLS: tuple[int, ...] = (dpkt.ip.IP_PROTO_TCP, dpkt.ip.IP_PROTO_UDP)
+PROTOCOLS: tuple[int, ...] = (6, 17)
+dpkt = None
+
+
+def require_dpkt() -> Any:
+    global dpkt
+    if dpkt is None:
+        import dpkt as dpkt_module
+
+        dpkt = dpkt_module
+    return dpkt
 
 
 @dataclass(frozen=True)
@@ -75,15 +83,17 @@ class Flow:
         if tcp_flags is None:
             return
 
-        if tcp_flags & dpkt.tcp.TH_SYN:
+        dpkt_module = require_dpkt()
+
+        if tcp_flags & dpkt_module.tcp.TH_SYN:
             self.syn_count += 1
-        if (tcp_flags & dpkt.tcp.TH_SYN) and (tcp_flags & dpkt.tcp.TH_ACK):
+        if (tcp_flags & dpkt_module.tcp.TH_SYN) and (tcp_flags & dpkt_module.tcp.TH_ACK):
             self.syn_ack_count += 1
-        if tcp_flags & dpkt.tcp.TH_ACK:
+        if tcp_flags & dpkt_module.tcp.TH_ACK:
             self.ack_count += 1
-        if tcp_flags & dpkt.tcp.TH_FIN:
+        if tcp_flags & dpkt_module.tcp.TH_FIN:
             self.fin_count += 1
-        if tcp_flags & dpkt.tcp.TH_RST:
+        if tcp_flags & dpkt_module.tcp.TH_RST:
             self.rst_count += 1
 
     def duration(self) -> float:
@@ -137,25 +147,28 @@ def build_default_output_path(input_path: Path) -> Path:
 
 
 def open_packet_reader(fp: BinaryIO) -> Iterator[tuple[float, bytes]]:
+    dpkt_module = require_dpkt()
     try:
-        return dpkt.pcap.Reader(fp)
+        return dpkt_module.pcap.Reader(fp)
     except ValueError:
         fp.seek(0)
         try:
-            return dpkt.pcapng.Reader(fp)
+            return dpkt_module.pcapng.Reader(fp)
         except ValueError as exc:
             raise ValueError(f"unsupported capture format: {exc}") from exc
 
 
 def get_ip_protocol(ip: dpkt.ip.IP | dpkt.ip6.IP6) -> int:
-    if isinstance(ip, dpkt.ip.IP):
+    dpkt_module = require_dpkt()
+    if isinstance(ip, dpkt_module.ip.IP):
         return ip.p
     return ip.nxt
 
 
 def get_transport_layer(ip: dpkt.ip.IP | dpkt.ip6.IP6) -> dpkt.tcp.TCP | dpkt.udp.UDP:
+    dpkt_module = require_dpkt()
     transport = ip.data
-    if isinstance(transport, (dpkt.tcp.TCP, dpkt.udp.UDP)):
+    if isinstance(transport, (dpkt_module.tcp.TCP, dpkt_module.udp.UDP)):
         return transport
     raise TypeError("unsupported transport protocol")
 
@@ -239,7 +252,7 @@ def write_csv(output_path: Path, flows: list[Flow]) -> None:
             )
 
 
-def parse_args() -> argparse.Namespace:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Aggregate TCP/UDP packets from pcap/pcapng into bidirectional flows."
     )
@@ -258,7 +271,11 @@ def parse_args() -> argparse.Namespace:
         default=1_000_000,
         help="show progress every N packets; 0 disables progress output",
     )
-    return parser.parse_args()
+    return parser
+
+
+def parse_args() -> argparse.Namespace:
+    return build_parser().parse_args()
 
 
 def resolve_cli_paths(args: argparse.Namespace) -> tuple[Path, Path]:
@@ -300,13 +317,15 @@ def aggregate_flows(
                     flush=True,
                 )
 
+            dpkt_module = require_dpkt()
+
             try:
-                eth = dpkt.ethernet.Ethernet(buf)
+                eth = dpkt_module.ethernet.Ethernet(buf)
             except Exception:
                 stats.parse_errors += 1
                 continue
 
-            if not isinstance(eth.data, (dpkt.ip.IP, dpkt.ip6.IP6)):
+            if not isinstance(eth.data, (dpkt_module.ip.IP, dpkt_module.ip6.IP6)):
                 stats.skipped_non_ip += 1
                 continue
             ip = eth.data
@@ -345,7 +364,7 @@ def aggregate_flows(
                 next_flow_id += 1
 
             packet_byte = len(buf)
-            tcp_flags = transport.flags if isinstance(transport, dpkt.tcp.TCP) else None
+            tcp_flags = transport.flags if isinstance(transport, dpkt_module.tcp.TCP) else None
             flow.update(
                 timestamp=ts,
                 packet_byte=packet_byte,
@@ -358,13 +377,18 @@ def aggregate_flows(
 
 
 def main() -> int:
-    args = parse_args()
+    parser = build_parser()
+    if len(sys.argv) == 1:
+        parser.print_usage(sys.stderr)
+        return 2
+
+    args = parser.parse_args()
 
     try:
         input_path, output_path = resolve_cli_paths(args)
     except ValueError as exc:
-        print(f"[error] {exc}", file=sys.stderr)
-        return 1
+        parser.error(str(exc))
+        return 2
 
     if not input_path.exists():
         print(f"[error] input not found: {input_path}", file=sys.stderr)

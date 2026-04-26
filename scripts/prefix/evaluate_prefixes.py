@@ -9,12 +9,28 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import pandas as pd
-import yaml
-
-
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_CONFIG_PATH = REPO_ROOT / "config/prefix_selection.yaml"
+pd = None
+yaml = None
+
+
+def require_pandas() -> Any:
+    global pd
+    if pd is None:
+        import pandas as pandas_module
+
+        pd = pandas_module
+    return pd
+
+
+def require_yaml() -> Any:
+    global yaml
+    if yaml is None:
+        import yaml as yaml_module
+
+        yaml = yaml_module
+    return yaml
 
 REQUIRED_CONFIG_KEYS = {
     "prefix_len",
@@ -176,10 +192,11 @@ def ensure_file_exists(path: Path, label: str) -> None:
 
 
 def load_config(path: Path) -> tuple[dict[str, Any], list[str]]:
+    yaml_module = require_yaml()
     ensure_file_exists(path, "Config file")
 
     with path.open("r", encoding="utf-8") as handle:
-        config = yaml.safe_load(handle)
+        config = yaml_module.safe_load(handle)
 
     if not isinstance(config, dict):
         raise ValueError("Config file must contain a YAML mapping.")
@@ -264,9 +281,10 @@ def load_config(path: Path) -> tuple[dict[str, Any], list[str]]:
 
 
 def load_csv(path: Path, label: str) -> pd.DataFrame:
+    pd_module = require_pandas()
     ensure_file_exists(path, label)
     try:
-        return pd.read_csv(path)
+        return pd_module.read_csv(path)
     except Exception as exc:  # pragma: no cover - pandas exception type is broad
         raise ValueError(f"Failed to read {label}: {path}") from exc
 

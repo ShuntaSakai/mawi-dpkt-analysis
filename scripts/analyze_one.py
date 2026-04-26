@@ -11,11 +11,19 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-import dpkt
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_INPUT = REPO_ROOT / "data/raw/202604080000.pcap.gz"
 DEFAULT_OUTDIR = REPO_ROOT / "results/json/all"
+dpkt = None
+
+
+def require_dpkt() -> Any:
+    global dpkt
+    if dpkt is None:
+        import dpkt as dpkt_module
+
+        dpkt = dpkt_module
+    return dpkt
 
 
 def inet_to_str(addr: bytes) -> str:
@@ -77,22 +85,23 @@ def counter_to_flag_records(counter: Counter[str]) -> list[dict[str, Any]]:
 
 def tcp_flags_to_names(flags: int) -> list[str]:
     """TCPフラグ整数値を、人が読みやすいフラグ名の配列に変換する。"""
+    dpkt_module = require_dpkt()
     names: list[str] = []
-    if flags & dpkt.tcp.TH_FIN:
+    if flags & dpkt_module.tcp.TH_FIN:
         names.append("FIN")
-    if flags & dpkt.tcp.TH_SYN:
+    if flags & dpkt_module.tcp.TH_SYN:
         names.append("SYN")
-    if flags & dpkt.tcp.TH_RST:
+    if flags & dpkt_module.tcp.TH_RST:
         names.append("RST")
-    if flags & dpkt.tcp.TH_PUSH:
+    if flags & dpkt_module.tcp.TH_PUSH:
         names.append("PSH")
-    if flags & dpkt.tcp.TH_ACK:
+    if flags & dpkt_module.tcp.TH_ACK:
         names.append("ACK")
-    if flags & dpkt.tcp.TH_URG:
+    if flags & dpkt_module.tcp.TH_URG:
         names.append("URG")
-    if flags & dpkt.tcp.TH_ECE:
+    if flags & dpkt_module.tcp.TH_ECE:
         names.append("ECE")
-    if flags & dpkt.tcp.TH_CWR:
+    if flags & dpkt_module.tcp.TH_CWR:
         names.append("CWR")
     if not names:
         names.append("NONE")
@@ -151,8 +160,10 @@ def analyze_pcap_gz(
 
     started = time.time()
 
+    dpkt_module = require_dpkt()
+
     with gzip.open(input_path, "rb") as fp:
-        pcap = dpkt.pcap.Reader(fp)
+        pcap = dpkt_module.pcap.Reader(fp)
 
         for i, (ts, buf) in enumerate(pcap, start=1):
             if max_packets is not None and i > max_packets:
@@ -169,22 +180,22 @@ def analyze_pcap_gz(
             packets_per_minute[minute_bucket] += 1
 
             try:
-                eth = dpkt.ethernet.Ethernet(buf)
+                eth = dpkt_module.ethernet.Ethernet(buf)
             except Exception:
                 stats["ethernet_parse_error"] += 1
                 continue
 
-            if isinstance(eth.data, dpkt.arp.ARP):
+            if isinstance(eth.data, dpkt_module.arp.ARP):
                 stats["arp"] += 1
                 continue
 
             ip = eth.data
 
-            if isinstance(ip, dpkt.ip.IP):
+            if isinstance(ip, dpkt_module.ip.IP):
                 stats["ipv4"] += 1
                 src_ip = inet_to_str(ip.src)
                 dst_ip = inet_to_str(ip.dst)
-            elif isinstance(ip, dpkt.ip6.IP6):
+            elif isinstance(ip, dpkt_module.ip6.IP6):
                 stats["ipv6"] += 1
                 src_ip = inet_to_str(ip.src)
                 dst_ip = inet_to_str(ip.dst)
@@ -196,7 +207,7 @@ def analyze_pcap_gz(
             dst_ip_counter[dst_ip] += 1
 
             try:
-                if isinstance(ip.data, dpkt.tcp.TCP):
+                if isinstance(ip.data, dpkt_module.tcp.TCP):
                     tcp = ip.data
                     stats["tcp"] += 1
                     l4_proto_counter["TCP"] += 1
@@ -220,17 +231,17 @@ def analyze_pcap_gz(
                     for name in flag_names:
                         tcp_flag_counter[name] += 1
 
-                    if flags & dpkt.tcp.TH_SYN:
+                    if flags & dpkt_module.tcp.TH_SYN:
                         stats["tcp_syn"] += 1
                         syn_flow_counter[flow] += 1
-                    if flags & dpkt.tcp.TH_ACK:
+                    if flags & dpkt_module.tcp.TH_ACK:
                         stats["tcp_ack"] += 1
-                    if flags & dpkt.tcp.TH_FIN:
+                    if flags & dpkt_module.tcp.TH_FIN:
                         stats["tcp_fin"] += 1
-                    if flags & dpkt.tcp.TH_RST:
+                    if flags & dpkt_module.tcp.TH_RST:
                         stats["tcp_rst"] += 1
 
-                elif isinstance(ip.data, dpkt.udp.UDP):
+                elif isinstance(ip.data, dpkt_module.udp.UDP):
                     udp = ip.data
                     stats["udp"] += 1
                     l4_proto_counter["UDP"] += 1
@@ -246,11 +257,11 @@ def analyze_pcap_gz(
                     dst_endpoint_counter[dst_endpoint] += 1
                     flow_counter[flow] += 1
 
-                elif isinstance(ip.data, dpkt.icmp.ICMP):
+                elif isinstance(ip.data, dpkt_module.icmp.ICMP):
                     stats["icmp"] += 1
                     l4_proto_counter["ICMP"] += 1
 
-                elif isinstance(ip.data, dpkt.icmp6.ICMP6):
+                elif isinstance(ip.data, dpkt_module.icmp6.ICMP6):
                     stats["icmp"] += 1
                     l4_proto_counter["ICMPv6"] += 1
 
@@ -305,7 +316,7 @@ def save_json(obj: dict[str, Any], outpath: Path) -> None:
         json.dump(obj, f, indent=2, ensure_ascii=False)
 
 
-def parse_args() -> argparse.Namespace:
+def build_parser() -> argparse.ArgumentParser:
     """解析スクリプトのコマンドライン引数を解析する。"""
     parser = argparse.ArgumentParser(
         description="Analyze one .pcap.gz file with dpkt."
@@ -334,12 +345,21 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="stop after reading this many packets (for quick testing)",
     )
-    return parser.parse_args()
+    return parser
+
+
+def parse_args() -> argparse.Namespace:
+    return build_parser().parse_args()
 
 
 def main() -> int:
     """コマンドライン処理を実行し、プロセスの終了コードを返す。"""
-    args = parse_args()
+    parser = build_parser()
+    if len(sys.argv) == 1:
+        parser.print_usage(sys.stderr)
+        return 2
+
+    args = parser.parse_args()
     input_path = resolve_from_repo_root(args.input)
     outdir = resolve_from_repo_root(args.outdir)
 

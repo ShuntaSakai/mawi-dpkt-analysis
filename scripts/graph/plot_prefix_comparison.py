@@ -9,14 +9,22 @@ import textwrap
 from pathlib import Path
 from typing import Any
 
-import matplotlib
-
-
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-
-
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+matplotlib = None
+plt = None
+
+
+def require_matplotlib() -> tuple[Any, Any]:
+    global matplotlib, plt
+    if plt is None:
+        import matplotlib as matplotlib_module
+
+        matplotlib_module.use("Agg")
+        import matplotlib.pyplot as pyplot
+
+        matplotlib = matplotlib_module
+        plt = pyplot
+    return matplotlib, plt
 
 COMPARE_FEATURES = [
     "duration",
@@ -329,6 +337,7 @@ def plot_histogram_compare(
     feature_name: str,
     out_path: Path,
 ) -> bool:
+    _, plt_module = require_matplotlib()
     overall_feature = get_feature_block(overall_json, feature_name)
     prefix_feature = get_feature_block(prefix_json, feature_name)
 
@@ -369,7 +378,7 @@ def plot_histogram_compare(
     overall_edges, overall_x, overall_y = overall_norm
     prefix_edges, prefix_x, prefix_y = prefix_norm
 
-    fig, ax = plt.subplots(figsize=(9.5, 5.8))
+    fig, ax = plt_module.subplots(figsize=(9.5, 5.8))
     ax.plot(overall_x, overall_y, label=f"overall (n={get_flow_count(overall_json)})", linewidth=2.0)
     ax.plot(prefix_x, prefix_y, label=f"{prefix_name} (n={get_flow_count(prefix_json)})", linewidth=2.0)
 
@@ -385,7 +394,7 @@ def plot_histogram_compare(
     add_bin_mismatch_note(ax, overall_edges, prefix_edges)
     fig.tight_layout()
     fig.savefig(out_path, dpi=150)
-    plt.close(fig)
+    plt_module.close(fig)
     return True
 
 
@@ -395,6 +404,7 @@ def plot_behavioral_compare(
     prefix_name: str,
     out_path: Path,
 ) -> bool:
+    _, plt_module = require_matplotlib()
     overall_values = get_behavioral_indicators(overall_json)
     prefix_values = get_behavioral_indicators(prefix_json)
 
@@ -408,7 +418,7 @@ def plot_behavioral_compare(
     x = range(len(keys))
     width = 0.38
 
-    fig, ax = plt.subplots(figsize=(10.5, 5.8))
+    fig, ax = plt_module.subplots(figsize=(10.5, 5.8))
     overall_y = [overall_values[key] for key in keys]
     prefix_y = [prefix_values[key] for key in keys]
 
@@ -423,7 +433,7 @@ def plot_behavioral_compare(
     add_small_sample_note(ax, get_flow_count(prefix_json))
     fig.tight_layout()
     fig.savefig(out_path, dpi=150)
-    plt.close(fig)
+    plt_module.close(fig)
     return True
 
 

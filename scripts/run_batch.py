@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import argparse
 import json
 import shutil
 import subprocess
@@ -9,20 +10,41 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-import yaml
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 JST = timezone(timedelta(hours=9))
+yaml = None
+
+
+def require_yaml() -> object:
+    global yaml
+    if yaml is None:
+        import yaml as yaml_module
+
+        yaml = yaml_module
+    return yaml
 
 
 def now_iso() -> str:
     return datetime.now(JST).isoformat()
 
 
-def load_config() -> dict:
-    config_path = REPO_ROOT / "config/settings.yaml"
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Run the legacy MAWI batch download/analyze pipeline."
+    )
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=Path("config/settings.yaml"),
+        help="settings YAML path (default: config/settings.yaml)",
+    )
+    return parser
+
+
+def load_config(config_path: Path) -> dict:
+    yaml_module = require_yaml()
     with config_path.open("r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
+        return yaml_module.safe_load(f)
 
 
 def safe_mkdir(path: Path) -> None:
@@ -86,7 +108,14 @@ def bytes_to_gib(num_bytes: int) -> float:
 
 
 def main() -> int:
-    config = load_config()
+    parser = build_parser()
+    if len(sys.argv) == 1:
+        parser.print_usage(sys.stderr)
+        return 2
+
+    args = parser.parse_args()
+    config_path = args.config if args.config.is_absolute() else REPO_ROOT / args.config
+    config = load_config(config_path)
 
     raw_dir = REPO_ROOT / config["paths"]["raw_dir"]
     json_dir = REPO_ROOT / config["paths"]["json_dir"]

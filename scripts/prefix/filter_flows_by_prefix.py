@@ -7,14 +7,21 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import pandas as pd
-
-
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 REQUIRED_FLOW_COLUMN = "dst_ip"
 REQUIRED_SELECTED_COLUMN = "normalized_dst_prefix"
 COMBINED_OUTPUT_NAME = "selected_prefix_flows.csv"
 INTERNAL_DST_IP_COLUMN = "_dst_ip_obj"
+pd = None
+
+
+def require_pandas() -> Any:
+    global pd
+    if pd is None:
+        import pandas as pandas_module
+
+        pd = pandas_module
+    return pd
 
 
 def parse_args() -> argparse.Namespace:
@@ -93,8 +100,9 @@ def prefix_to_filename(prefix: str) -> str:
 
 
 def load_csv(path: Path, label: str) -> pd.DataFrame:
+    pd_module = require_pandas()
     ensure_file_exists(path, label)
-    return pd.read_csv(path)
+    return pd_module.read_csv(path)
 
 
 def add_dst_ip_cache(flows: pd.DataFrame) -> tuple[pd.DataFrame, int]:
@@ -148,18 +156,19 @@ def build_combined_rows(
         matched_prefix_count += 1
         matched = matched_base.copy()
         matched["matched_prefix"] = prefix
-        matched["aggregate_id"] = row["aggregate_id"] if "aggregate_id" in row.index else pd.NA
+        pd_module = require_pandas()
+        matched["aggregate_id"] = row["aggregate_id"] if "aggregate_id" in row.index else pd_module.NA
         if "prefix_score" in row.index:
             matched["prefix_score"] = row["prefix_score"]
         elif "score" in row.index:
             matched["prefix_score"] = row["score"]
         else:
-            matched["prefix_score"] = pd.NA
+            matched["prefix_score"] = pd_module.NA
         matched["scan_candidate"] = (
-            row["scan_candidate"] if "scan_candidate" in row.index else pd.NA
+            row["scan_candidate"] if "scan_candidate" in row.index else pd_module.NA
         )
         matched["passes_filters"] = (
-            row["passes_filters"] if "passes_filters" in row.index else pd.NA
+            row["passes_filters"] if "passes_filters" in row.index else pd_module.NA
         )
         combined_rows.append(matched)
 
@@ -184,9 +193,15 @@ def main() -> int:
     try:
         flows = load_csv(flows_path, "Flow CSV")
         selected = load_csv(selected_path, "selected_prefixes.csv")
-    except (FileNotFoundError, pd.errors.EmptyDataError) as exc:
+    except FileNotFoundError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
+    except Exception as exc:
+        pd_module = require_pandas()
+        if isinstance(exc, pd_module.errors.EmptyDataError):
+            print(f"Error: {exc}", file=sys.stderr)
+            return 1
+        raise
 
     if REQUIRED_FLOW_COLUMN not in flows.columns:
         print(f"Error: Flow CSV must contain '{REQUIRED_FLOW_COLUMN}' column.", file=sys.stderr)
@@ -222,7 +237,8 @@ def main() -> int:
         warn("no selected prefixes matched any flow.")
 
     if args.write_combined and combined_rows:
-        combined = pd.concat(combined_rows, ignore_index=True)
+        pd_module = require_pandas()
+        combined = pd_module.concat(combined_rows, ignore_index=True)
         combined_output_path = out_dir / COMBINED_OUTPUT_NAME
         combined.to_csv(combined_output_path, index=False)
         print(f"[DONE] combined: {len(combined)} flows -> {combined_output_path}")

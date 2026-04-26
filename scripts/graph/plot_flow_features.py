@@ -6,10 +6,17 @@ import json
 from pathlib import Path
 from typing import Any
 
-import matplotlib.pyplot as plt
-
-
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+plt = None
+
+
+def require_matplotlib_pyplot() -> Any:
+    global plt
+    if plt is None:
+        import matplotlib.pyplot as pyplot
+
+        plt = pyplot
+    return plt
 
 DEFAULT_FEATURES = [
     "flow_inter_arrival_time",
@@ -91,9 +98,10 @@ def compact_flow_label(record: dict[str, Any], max_host_len: int = 24) -> str:
 
 
 def save_figure(fig: plt.Figure, outpath: Path) -> Path:
+    plt_module = require_matplotlib_pyplot()
     fig.tight_layout()
     fig.savefig(outpath, dpi=150)
-    plt.close(fig)
+    plt_module.close(fig)
     return outpath
 
 
@@ -104,6 +112,7 @@ def plot_histogram(
     outdir: Path,
     use_log_histogram: bool = False,
 ) -> Path | None:
+    plt_module = require_matplotlib_pyplot()
     hist_key = "log_histogram" if use_log_histogram else "histogram"
     histogram = feature.get(hist_key)
 
@@ -128,7 +137,7 @@ def plot_histogram(
     label = short_feature_label(feature_name)
     xlabel = f"{label} ({unit})" if unit else label
 
-    fig, ax = plt.subplots(figsize=(9, 5.5))
+    fig, ax = plt_module.subplots(figsize=(9, 5.5))
 
     # JSON に保存された edge/count をそのまま使い、比較時も再現性のある図にする。
     widths = [edges[i + 1] - edges[i] for i in range(len(counts))]
@@ -163,6 +172,7 @@ def plot_histogram(
 
 
 def plot_tcp_flag_totals(data: dict[str, Any], outdir: Path) -> Path | None:
+    plt_module = require_matplotlib_pyplot()
     flags = data.get("tcp_flag_totals")
     if not flags:
         return None
@@ -170,7 +180,7 @@ def plot_tcp_flag_totals(data: dict[str, Any], outdir: Path) -> Path | None:
     labels = list(flags.keys())
     values = [flags[key] for key in labels]
 
-    fig, ax = plt.subplots(figsize=(8, 5))
+    fig, ax = plt_module.subplots(figsize=(8, 5))
     ax.bar(labels, values, edgecolor="black", linewidth=0.4)
     ax.set_xlabel("TCP flag")
     ax.set_ylabel("Count")
@@ -182,6 +192,7 @@ def plot_tcp_flag_totals(data: dict[str, Any], outdir: Path) -> Path | None:
 
 
 def plot_tcp_flag_rates(data: dict[str, Any], outdir: Path) -> Path | None:
+    plt_module = require_matplotlib_pyplot()
     rates = data.get("tcp_flag_rates_per_flow")
     if not rates:
         return None
@@ -189,7 +200,7 @@ def plot_tcp_flag_rates(data: dict[str, Any], outdir: Path) -> Path | None:
     labels = list(rates.keys())
     values = [rates[key] for key in labels]
 
-    fig, ax = plt.subplots(figsize=(8.5, 5))
+    fig, ax = plt_module.subplots(figsize=(8.5, 5))
     ax.bar(labels, values, edgecolor="black", linewidth=0.4)
     ax.set_xlabel("TCP flag metric")
     ax.set_ylabel("Average count per flow")
@@ -201,6 +212,7 @@ def plot_tcp_flag_rates(data: dict[str, Any], outdir: Path) -> Path | None:
 
 
 def plot_behavioral_indicators(data: dict[str, Any], outdir: Path) -> Path | None:
+    plt_module = require_matplotlib_pyplot()
     indicators = data.get("behavioral_indicators")
     if not indicators:
         return None
@@ -208,7 +220,7 @@ def plot_behavioral_indicators(data: dict[str, Any], outdir: Path) -> Path | Non
     labels = list(indicators.keys())
     values = [indicators[key] for key in labels]
 
-    fig, ax = plt.subplots(figsize=(10.5, 5.5))
+    fig, ax = plt_module.subplots(figsize=(10.5, 5.5))
     ax.bar(labels, values, edgecolor="black", linewidth=0.4)
     ax.set_xlabel("Indicator")
     ax.set_ylabel("Ratio")
@@ -226,6 +238,7 @@ def plot_top_flows(
     top_key: str,
     top_n: int,
 ) -> Path | None:
+    plt_module = require_matplotlib_pyplot()
     top = data.get("top", {})
     records = top.get(f"by_{top_key}", [])
 
@@ -237,7 +250,7 @@ def plot_top_flows(
     values = [record[top_key] for record in records]
 
     fig_height = max(4.5, 0.5 * len(records) + 1.5)
-    fig, ax = plt.subplots(figsize=(12, fig_height))
+    fig, ax = plt_module.subplots(figsize=(12, fig_height))
     ax.barh(labels[::-1], values[::-1], edgecolor="black", linewidth=0.4)
     ax.set_xlabel(top_key)
     ax.set_ylabel("Flow")
@@ -248,6 +261,7 @@ def plot_top_flows(
 
 
 def plot_protocol_summary(data: dict[str, Any], outdir: Path) -> list[Path]:
+    plt_module = require_matplotlib_pyplot()
     protocol_summary = data.get("protocol_summary")
     if not protocol_summary:
         return []
@@ -263,14 +277,14 @@ def plot_protocol_summary(data: dict[str, Any], outdir: Path) -> list[Path]:
 
     created: list[Path] = []
 
-    fig1, ax1 = plt.subplots(figsize=(8, 5))
+    fig1, ax1 = plt_module.subplots(figsize=(8, 5))
     ax1.bar(labels, flow_counts, edgecolor="black", linewidth=0.4)
     ax1.set_xlabel("Protocol")
     ax1.set_ylabel("Flow count")
     add_common_title(ax1, data, "Protocol flow counts")
     created.append(save_figure(fig1, outdir / "protocol_flow_counts.png"))
 
-    fig2, ax2 = plt.subplots(figsize=(8, 5))
+    fig2, ax2 = plt_module.subplots(figsize=(8, 5))
     ax2.bar(labels, flow_ratios, edgecolor="black", linewidth=0.4)
     ax2.set_xlabel("Protocol")
     ax2.set_ylabel("Flow ratio")

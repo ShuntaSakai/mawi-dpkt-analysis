@@ -79,7 +79,7 @@ def download_file(url: str, outdir: Path, force: bool = False) -> Path:
     return outpath
 
 
-def parse_args() -> argparse.Namespace:
+def build_parser() -> argparse.ArgumentParser:
     """ダウンロードスクリプトのコマンドライン引数を解析する。"""
     parser = argparse.ArgumentParser(
         description="Download one MAWI pcap.gz trace file."
@@ -100,12 +100,21 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="overwrite if the file already exists",
     )
-    return parser.parse_args()
+    return parser
+
+
+def parse_args() -> argparse.Namespace:
+    return build_parser().parse_args()
 
 
 def main() -> int:
     """コマンドライン処理を実行し、プロセスの終了コードを返す。"""
-    args = parse_args()
+    parser = build_parser()
+    if len(sys.argv) == 1:
+        parser.print_usage(sys.stderr)
+        return 2
+
+    args = parser.parse_args()
     outdir = resolve_from_repo_root(args.outdir)
     try:
         download_file(args.url, outdir, force=args.force)
