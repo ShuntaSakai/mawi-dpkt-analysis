@@ -127,39 +127,42 @@ def run_command(cmd: list[str]) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run aguri3 and agurim for a capture file."
+        description="Run aguri3 and agurim for a capture file.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument(
+    required_args = parser.add_argument_group("required arguments")
+    optional_args = parser.add_argument_group("options")
+    required_args.add_argument(
         "--pcap",
         required=True,
         type=Path,
         help="Input pcap / pcap.gz / pcapng / pcapng.gz path (relative paths are resolved from the repo root).",
     )
-    parser.add_argument(
+    optional_args.add_argument(
         "--dataset",
         type=str,
         default=None,
         help="Dataset name. If omitted, infer it from the pcap filename.",
     )
-    parser.add_argument(
+    optional_args.add_argument(
         "--out-dir",
         type=Path,
         default=None,
-        help="Output directory (relative paths are resolved from the repo root). Default: results/aguri/<dataset>",
+        help="Output directory (relative paths are resolved from the repo root). If omitted, use results/aguri/<dataset>.",
     )
-    parser.add_argument(
+    optional_args.add_argument(
         "--aguri3-bin",
         type=str,
         default=None,
-        help="Path to aguri3 command. Default: scripts/aguri/agurim/src/aguri3 if present, otherwise aguri3 on PATH",
+        help="Path to aguri3 command. If omitted, use scripts/aguri/agurim/src/aguri3 when present, otherwise aguri3 on PATH.",
     )
-    parser.add_argument(
+    optional_args.add_argument(
         "--agurim-bin",
         type=str,
         default=None,
-        help="Path to agurim command. Default: scripts/aguri/agurim/src/agurim if present, otherwise agurim on PATH",
+        help="Path to agurim command. If omitted, use scripts/aguri/agurim/src/agurim when present, otherwise agurim on PATH.",
     )
-    parser.add_argument(
+    optional_args.add_argument(
         "--force",
         action="store_true",
         help="Overwrite existing output files if they already exist.",

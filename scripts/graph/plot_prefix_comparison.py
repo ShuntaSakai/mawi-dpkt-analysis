@@ -50,18 +50,22 @@ LOW_FLOW_COUNT_THRESHOLD = 30
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Compare overall flow features.json against per-prefix features.json files."
+        description="Compare overall flow features.json against per-prefix features.json files.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("--overall", required=True, type=Path, help="Overall features.json path.")
-    parser.add_argument(
+    required_args = parser.add_argument_group("required arguments")
+    optional_args = parser.add_argument_group("options")
+    required_args.add_argument("--overall", required=True, type=Path, help="Overall features.json path.")
+    required_args.add_argument(
         "--prefix-dir",
         required=True,
         type=Path,
         help="Directory containing prefix *_features.json files.",
     )
-    parser.add_argument(
+    optional_args.add_argument(
         "--out-dir",
         type=Path,
+        default=None,
         help="Output directory for summary CSV and plots. Defaults to results/comparison/<dataset_name>.",
     )
     return parser.parse_args()

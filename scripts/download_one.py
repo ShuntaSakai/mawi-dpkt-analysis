@@ -82,20 +82,22 @@ def download_file(url: str, outdir: Path, force: bool = False) -> Path:
 def build_parser() -> argparse.ArgumentParser:
     """ダウンロードスクリプトのコマンドライン引数を解析する。"""
     parser = argparse.ArgumentParser(
-        description="Download one MAWI pcap.gz trace file."
+        description="Download one MAWI pcap.gz trace file.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument(
+    optional_args = parser.add_argument_group("options")
+    optional_args.add_argument(
         "--url",
         default=DEFAULT_URL,
-        help=f"target URL (default: {DEFAULT_URL})",
+        help="target URL",
     )
-    parser.add_argument(
+    optional_args.add_argument(
         "--outdir",
         type=Path,
         default=DEFAULT_OUTDIR,
-        help=f"output directory (default: {DEFAULT_OUTDIR})",
+        help="output directory",
     )
-    parser.add_argument(
+    optional_args.add_argument(
         "--force",
         action="store_true",
         help="overwrite if the file already exists",

@@ -254,18 +254,22 @@ def write_csv(output_path: Path, flows: list[Flow]) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Aggregate TCP/UDP packets from pcap/pcapng into bidirectional flows."
+        description="Aggregate TCP/UDP packets from pcap/pcapng into bidirectional flows.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("--input", dest="input", type=Path, help="input capture path")
-    parser.add_argument(
+    required_args = parser.add_argument_group("required arguments")
+    required_inputs = required_args.add_mutually_exclusive_group(required=True)
+    optional_args = parser.add_argument_group("options")
+    required_inputs.add_argument("--input", dest="input", type=Path, help="input capture path")
+    required_inputs.add_argument("--input_path", dest="input_path", type=Path, help="legacy input path")
+    optional_args.add_argument(
         "--output",
         dest="output",
         type=Path,
-        help=f"output CSV path (default: {DEFAULT_OUTPUT_DIR}/<input_name>.csv)",
+        help=f"output CSV path; if omitted, write {DEFAULT_OUTPUT_DIR}/<input_name>.csv",
     )
-    parser.add_argument("--input_path", dest="input_path", type=Path, help="legacy input path")
-    parser.add_argument("--output_path", dest="output_path", type=Path, help="legacy output path")
-    parser.add_argument(
+    optional_args.add_argument("--output_path", dest="output_path", type=Path, help="legacy output path")
+    optional_args.add_argument(
         "--progress-every",
         type=int,
         default=1_000_000,

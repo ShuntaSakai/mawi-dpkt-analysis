@@ -562,27 +562,30 @@ def print_short_summary(summary: dict[str, Any]) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Summarize flow-level features from flow CSV."
+        description="Summarize flow-level features from flow CSV.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument(
+    required_args = parser.add_argument_group("required arguments")
+    optional_args = parser.add_argument_group("options")
+    required_args.add_argument(
         "--input",
         type=Path,
         required=True,
         help="input flow CSV path",
     )
-    parser.add_argument(
+    optional_args.add_argument(
         "--output",
         type=Path,
         default=None,
         help="output summary JSON path",
     )
-    parser.add_argument(
+    optional_args.add_argument(
         "--top-n",
         type=int,
         default=20,
         help="number of top flows to include",
     )
-    parser.add_argument(
+    optional_args.add_argument(
         "--hist-bins",
         type=int,
         default=20,

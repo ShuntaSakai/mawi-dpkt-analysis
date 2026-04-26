@@ -165,21 +165,24 @@ def default_output_dir(aguri_path: Path) -> Path:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Evaluate aguri prefix candidates using flow CSV."
+        description="Evaluate aguri prefix candidates using flow CSV.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("--flows", required=True, type=Path, help="Input flow CSV.")
-    parser.add_argument("--aguri", required=True, type=Path, help="Input aguri_candidates.csv.")
-    parser.add_argument(
+    required_args = parser.add_argument_group("required arguments")
+    optional_args = parser.add_argument_group("options")
+    required_args.add_argument("--flows", required=True, type=Path, help="Input flow CSV.")
+    required_args.add_argument("--aguri", required=True, type=Path, help="Input aguri_candidates.csv.")
+    optional_args.add_argument(
         "--config",
         type=Path,
         default=Path("config/prefix_selection.yaml"),
-        help=f"prefix_selection.yaml. Default: {DEFAULT_CONFIG_PATH}",
+        help=f"prefix_selection.yaml path; if omitted, use {DEFAULT_CONFIG_PATH}",
     )
-    parser.add_argument(
+    optional_args.add_argument(
         "--out-dir",
         type=Path,
         default=None,
-        help="Output directory. Default: results/prefix/<aguri_dataset_name>",
+        help="Output directory. If omitted, use results/prefix/<aguri_dataset_name>.",
     )
     return parser.parse_args()
 

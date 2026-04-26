@@ -193,26 +193,29 @@ def write_csv(rows: list[AggregateRecord], output_path: Path) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Parse agurim text output into CSV."
+        description="Parse agurim text output into CSV.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument(
+    required_args = parser.add_argument_group("required arguments")
+    optional_args = parser.add_argument_group("options")
+    required_args.add_argument(
         "--input",
         required=True,
         type=Path,
         help="Input agurim text file.",
     )
-    parser.add_argument(
+    optional_args.add_argument(
         "--output",
         type=Path,
         default=None,
-        help="Output CSV path. Default: <input_dir>/<dataset>.aguri_candidates.csv",
+        help="Output CSV path. If omitted, write <input_dir>/<dataset>.aguri_candidates.csv.",
     )
-    parser.add_argument(
+    optional_args.add_argument(
         "--force",
         action="store_true",
         help="Overwrite an existing output CSV.",
     )
-    parser.add_argument(
+    optional_args.add_argument(
         "--strict",
         action="store_true",
         help="Fail if any non-empty, non-metadata line cannot be parsed.",

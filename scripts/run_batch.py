@@ -30,13 +30,15 @@ def now_iso() -> str:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Run the legacy MAWI batch download/analyze pipeline."
+        description="Run the legacy MAWI batch download/analyze pipeline.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument(
+    optional_args = parser.add_argument_group("options")
+    optional_args.add_argument(
         "--config",
         type=Path,
         default=Path("config/settings.yaml"),
-        help="settings YAML path (default: config/settings.yaml)",
+        help="settings YAML path",
     )
     return parser
 

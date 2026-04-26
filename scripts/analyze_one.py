@@ -319,27 +319,29 @@ def save_json(obj: dict[str, Any], outpath: Path) -> None:
 def build_parser() -> argparse.ArgumentParser:
     """解析スクリプトのコマンドライン引数を解析する。"""
     parser = argparse.ArgumentParser(
-        description="Analyze one .pcap.gz file with dpkt."
+        description="Analyze one .pcap.gz file with dpkt.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument(
+    optional_args = parser.add_argument_group("options")
+    optional_args.add_argument(
         "--input",
         type=Path,
         default=DEFAULT_INPUT,
-        help=f"input .pcap.gz path (default: {DEFAULT_INPUT})",
+        help="input .pcap.gz path",
     )
-    parser.add_argument(
+    optional_args.add_argument(
         "--outdir",
         type=Path,
         default=DEFAULT_OUTDIR,
-        help=f"output directory (default: {DEFAULT_OUTDIR})",
+        help="output directory",
     )
-    parser.add_argument(
+    optional_args.add_argument(
         "--progress-every",
         type=int,
         default=1_000_000,
-        help="show progress every N packets (default: 1000000)",
+        help="show progress every N packets",
     )
-    parser.add_argument(
+    optional_args.add_argument(
         "--max-packets",
         type=int,
         default=None,

@@ -26,39 +26,42 @@ def require_pandas() -> Any:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Filter flow CSV by selected destination prefixes."
+        description="Filter flow CSV by selected destination prefixes.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument(
+    required_args = parser.add_argument_group("required arguments")
+    optional_args = parser.add_argument_group("options")
+    required_args.add_argument(
         "--flows",
         required=True,
         type=Path,
         help="Input full flow CSV.",
     )
-    parser.add_argument(
+    required_args.add_argument(
         "--selected",
         required=True,
         type=Path,
         help="Input selected_prefixes.csv.",
     )
-    parser.add_argument(
+    optional_args.add_argument(
         "--out-dir",
         default=None,
         type=Path,
         help="Output directory. Defaults to results/flows/prefix/<flow_dataset_name>/",
     )
-    parser.add_argument(
+    optional_args.add_argument(
         "--write-separate",
         dest="write_separate",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Write one CSV per selected prefix. Default: enabled.",
+        help="Write one CSV per selected prefix.",
     )
-    parser.add_argument(
+    optional_args.add_argument(
         "--write-combined",
         dest="write_combined",
         action=argparse.BooleanOptionalAction,
         default=False,
-        help="Write a combined CSV for all selected prefixes. Default: disabled.",
+        help="Write a combined CSV for all selected prefixes.",
     )
     return parser.parse_args()
 

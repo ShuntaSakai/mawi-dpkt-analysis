@@ -358,33 +358,36 @@ def generate_plots(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Generate plots from flow feature summary JSON."
+        description="Generate plots from flow feature summary JSON.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument(
+    required_args = parser.add_argument_group("required arguments")
+    optional_args = parser.add_argument_group("options")
+    required_args.add_argument(
         "--input",
         type=Path,
         required=True,
         help="input feature summary JSON",
     )
-    parser.add_argument(
+    optional_args.add_argument(
         "--outdir",
         type=Path,
         default=Path("results/flow_plots/all"),
         help="base output directory for plot images",
     )
-    parser.add_argument(
+    optional_args.add_argument(
         "--graph",
         choices=["features", "tcp_flags", "behavior", "top", "protocol", "all"],
         default="all",
         help="which graph group to generate",
     )
-    parser.add_argument(
+    optional_args.add_argument(
         "--features",
         nargs="*",
         default=DEFAULT_FEATURES,
         help="feature names to plot",
     )
-    parser.add_argument(
+    optional_args.add_argument(
         "--top-n",
         type=int,
         default=10,
