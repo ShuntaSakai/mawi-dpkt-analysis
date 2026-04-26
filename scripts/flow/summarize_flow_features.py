@@ -104,6 +104,18 @@ def resolve_from_repo_root(path: Path) -> Path:
     return path if path.is_absolute() else REPO_ROOT / path
 
 
+def default_output_dir_for_input(input_path: Path) -> Path:
+    try:
+        relative_input = input_path.resolve().relative_to(REPO_ROOT.resolve())
+    except ValueError:
+        return REPO_ROOT / "results/features/all"
+
+    if relative_input.parts[:3] == ("results", "flows", "prefix"):
+        return REPO_ROOT / "results/features/prefix"
+
+    return REPO_ROOT / "results/features/all"
+
+
 def parse_float_strict(value: str, field_name: str) -> float:
     try:
         parsed = float(value)
@@ -582,7 +594,8 @@ def main() -> int:
     input_path = resolve_from_repo_root(args.input)
 
     if args.output is None:
-        output_path = REPO_ROOT / "results/features/all" / f"{input_path.stem}_features.json"
+        output_dir = default_output_dir_for_input(input_path)
+        output_path = output_dir / f"{input_path.stem}_features.json"
     else:
         output_path = resolve_from_repo_root(args.output)
 
