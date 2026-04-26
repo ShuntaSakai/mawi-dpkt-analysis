@@ -11,6 +11,12 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+SCRIPTS_DIR = REPO_ROOT / "scripts"
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+
+from download_one import DEFAULT_OUTDIR, download_file
+
 SUPPORTED_CAPTURE_SUFFIXES: tuple[str, ...] = (
     ".pcapng.gz",
     ".pcap.gz",
@@ -94,13 +100,18 @@ def build_parser() -> argparse.ArgumentParser:
         description="Run the full prefix analysis pipeline for a pcap/pcapng capture.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    required_args = parser.add_argument_group("required arguments")
+    input_args = parser.add_argument_group("input source")
     optional_args = parser.add_argument_group("options")
-    required_args.add_argument(
+    input_group = input_args.add_mutually_exclusive_group(required=True)
+    input_group.add_argument(
         "--pcap",
-        required=True,
         type=Path,
         help="Input pcap / pcap.gz / pcapng / pcapng.gz path.",
+    )
+    input_group.add_argument(
+        "--url",
+        type=str,
+        help="Download target URL. The downloaded file is then passed to the pipeline.",
     )
     optional_args.add_argument(
         "--dataset",
@@ -115,9 +126,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="prefix_selection.yaml path.",
     )
     optional_args.add_argument(
+        "--download-dir",
+        type=Path,
+        default=DEFAULT_OUTDIR,
+        help="Directory used when --url downloads a pcap file.",
+    )
+    optional_args.add_argument(
         "--force",
         action="store_true",
         help="Overwrite existing output files and re-run all steps.",
+    )
+    optional_args.add_argument(
+        "--force-download",
+        action="store_true",
+        help="Re-download the input file when --url is used and the file already exists.",
     )
     optional_args.add_argument(
         "--dry-run",
@@ -326,6 +348,29 @@ def cleanup_force_outputs(dataset: str) -> None:
             shutil.rmtree(path)
 
 
+def prepare_input_pcap(args: argparse.Namespace) -> Path:
+    if args.url is None:
+        return resolve_from_repo_root(args.pcap.expanduser())
+
+    download_dir = resolve_from_repo_root(args.download_dir.expanduser())
+    if args.dry_run:
+        filename = args.url.rstrip("/").split("/")[-1]
+        planned_path = download_dir / filename
+        print_step(0, "Download capture file")
+        print(f"[RUN] download {args.url} -> {planned_path}")
+        print_done("dry-run only")
+        return planned_path
+
+    print_step(0, "Download capture file")
+    downloaded_path = download_file(
+        args.url,
+        download_dir,
+        force=args.force_download,
+    )
+    print_done(str(downloaded_path))
+    return downloaded_path
+
+
 def main() -> int:
     parser = build_parser()
     if len(sys.argv) == 1:
@@ -333,12 +378,13 @@ def main() -> int:
         return 2
 
     args = parse_args()
-    pcap_path = resolve_from_repo_root(args.pcap.expanduser())
+    pcap_path = prepare_input_pcap(args)
     dataset = args.dataset or infer_dataset_name(pcap_path)
     config_path = resolve_from_repo_root(args.config.expanduser())
 
     try:
-        ensure_file_exists(pcap_path, "Input pcap")
+        if not args.dry_run:
+            ensure_file_exists(pcap_path, "Input pcap")
         ensure_file_exists(config_path, "Config file")
         ensure_can_write(flow_csv_path(dataset), args.force)
         ensure_can_write(overall_features_path(dataset), args.force)

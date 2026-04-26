@@ -52,10 +52,10 @@
 ### `pipeline/`
 
 - 一括実行用のディレクトリです
-- `run_full_prefix_pipeline.py` で pcap から全体 vs prefix 比較まで一括実行できます
+- `run_full_prefix_pipeline.py` で `--pcap` または `--url` を起点に、全体 vs prefix 比較まで一括実行できます
 
 ## 補助的・旧系統
 
 - `analyze_one.py`: パケット単位の統計を `results/json/` に出力する旧系統スクリプトです
-- `download_one.py`: MAWI データを 1 ファイル取得する補助スクリプトです
+- `download_one.py`: MAWI データを 1 ファイル取得する補助スクリプトです。`pipeline/run_full_prefix_pipeline.py --url` からも内部利用されます
 - `run_batch.py`: `download_one.py` と `analyze_one.py` を使う旧バッチ処理系です

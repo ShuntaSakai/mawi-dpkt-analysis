@@ -72,6 +72,16 @@ scripts/graph/plot_prefix_comparison.py
 results/comparison/<dataset>/
 ```
 
+### 一括実行
+
+`pipeline/run_full_prefix_pipeline.py` は、既存の `pcap` ファイルを `--pcap` で渡す使い方に加えて、`--url` で MAWI の URL を指定し、ダウンロード完了後にそのまま prefix 分析パイプラインを実行できます。
+
+```bash
+python scripts/pipeline/run_full_prefix_pipeline.py \
+  --url https://mawi.wide.ad.jp/mawi/ditl/ditl2026/202604080000.pcap.gz \
+  --config config/prefix_selection.yaml
+```
+
 ## ディレクトリ構成
 
 - [config/](./config/README.md)  
