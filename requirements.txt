@@ -1,3 +1,4 @@
 dpkt
 matplotlib
+pandas
 PyYAML
