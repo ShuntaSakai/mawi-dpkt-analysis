@@ -108,7 +108,13 @@ def default_output_dir_for_input(input_path: Path) -> Path:
     try:
         relative_input = input_path.resolve().relative_to(REPO_ROOT.resolve())
     except ValueError:
-        return REPO_ROOT / "results/features/all"
+        return REPO_ROOT / "results" / "features" / "all" / input_path.stem
+
+    if relative_input.parts[:3] == ("results", "flows", "all"):
+        dataset_parts = relative_input.parts[3:-1]
+        if dataset_parts:
+            return REPO_ROOT / "results" / "features" / "all" / Path(*dataset_parts)
+        return REPO_ROOT / "results" / "features" / "all" / input_path.stem
 
     if relative_input.parts[:3] == ("results", "flows", "prefix"):
         prefix_parts = relative_input.parts[3:-1]
@@ -116,7 +122,34 @@ def default_output_dir_for_input(input_path: Path) -> Path:
             return REPO_ROOT / "results" / "features" / "prefix" / Path(*prefix_parts)
         return REPO_ROOT / "results/features/prefix"
 
-    return REPO_ROOT / "results/features/all"
+    return REPO_ROOT / "results" / "features" / "all" / input_path.stem
+
+
+def default_output_filename_for_input(input_path: Path) -> str:
+    try:
+        relative_input = input_path.resolve().relative_to(REPO_ROOT.resolve())
+    except ValueError:
+        return "features.json"
+
+    if relative_input.parts[:3] == ("results", "flows", "all"):
+        return "features.json"
+
+    if relative_input.parts[:3] == ("results", "flows", "prefix"):
+        return f"{input_path.stem}_features.json"
+
+    return "features.json"
+
+
+def infer_dataset_name(input_path: Path) -> str:
+    try:
+        relative_input = input_path.resolve().relative_to(REPO_ROOT.resolve())
+    except ValueError:
+        return input_path.stem
+
+    if relative_input.parts[:3] == ("results", "flows", "all") and len(relative_input.parts) >= 5:
+        return relative_input.parts[3]
+
+    return input_path.stem
 
 
 def parse_float_strict(value: str, field_name: str) -> float:
@@ -436,6 +469,7 @@ def summarize_behavioral_indicators(flows: list[dict[str, Any]]) -> dict[str, An
 def summarize_flows(
     flows: list[dict[str, Any]],
     input_path: Path,
+    dataset_name: str,
     top_n: int,
     bins: int,
     invalid_info: dict[str, Any],
@@ -470,7 +504,7 @@ def summarize_flows(
             "input_file": str(input_path),
         },
         "scope": {
-            "dataset_name": input_path.stem,
+            "dataset_name": dataset_name,
             "flow_definition": "bidirectional 5-tuple flow",
             "flow_inter_arrival_time_definition": (
                 "difference between adjacent flow start times after global sort"
@@ -601,7 +635,7 @@ def main() -> int:
 
     if args.output is None:
         output_dir = default_output_dir_for_input(input_path)
-        output_path = output_dir / f"{input_path.stem}_features.json"
+        output_path = output_dir / default_output_filename_for_input(input_path)
     else:
         output_path = resolve_from_repo_root(args.output)
 
@@ -615,9 +649,11 @@ def main() -> int:
 
     try:
         flows, invalid_info = load_flows(input_path)
+        dataset_name = infer_dataset_name(input_path)
         summary = summarize_flows(
             flows=flows,
             input_path=input_path,
+            dataset_name=dataset_name,
             top_n=args.top_n,
             bins=args.hist_bins,
             invalid_info=invalid_info,

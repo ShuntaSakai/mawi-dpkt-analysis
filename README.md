@@ -29,11 +29,11 @@ pcap.gz
   ↓
 scripts/flow/pcap_to_flow.py
   ↓
-results/flows/all/*.csv
+results/flows/all/<dataset_name>/flows.csv
   ↓
 scripts/flow/summarize_flow_features.py
   ↓
-results/features/all/*_features.json
+results/features/all/<dataset_name>/features.json
   ↓
 scripts/graph/plot_flow_features.py
   ↓

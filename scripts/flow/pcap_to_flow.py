@@ -13,6 +13,7 @@ from typing import Any, BinaryIO, Iterator
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "results/flows/all"
+DEFAULT_OUTPUT_FILENAME = "flows.csv"
 PROTOCOLS: tuple[int, ...] = (6, 17)
 dpkt = None
 
@@ -143,7 +144,7 @@ def build_default_output_path(input_path: Path) -> Path:
         if filename.endswith(suffix):
             filename = filename[: -len(suffix)]
             break
-    return DEFAULT_OUTPUT_DIR / f"{filename}.csv"
+    return DEFAULT_OUTPUT_DIR / filename / DEFAULT_OUTPUT_FILENAME
 
 
 def open_packet_reader(fp: BinaryIO) -> Iterator[tuple[float, bytes]]:
@@ -266,7 +267,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--output",
         dest="output",
         type=Path,
-        help=f"output CSV path; if omitted, write {DEFAULT_OUTPUT_DIR}/<input_name>.csv",
+        help=f"output CSV path; if omitted, write {DEFAULT_OUTPUT_DIR}/<input_name>/{DEFAULT_OUTPUT_FILENAME}",
     )
     optional_args.add_argument("--output_path", dest="output_path", type=Path, help="legacy output path")
     optional_args.add_argument(

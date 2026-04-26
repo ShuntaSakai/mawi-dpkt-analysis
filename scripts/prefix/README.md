@@ -7,7 +7,7 @@
 ### 実行順序
 
 ```text
-1. results/flows/all/<dataset>.csv を用意する
+1. results/flows/all/<dataset>/flows.csv を用意する
 2. results/aguri/<dataset>/<dataset>.aguri_candidates.csv を用意する
 3. evaluate_prefixes.py で候補を再評価する
 4. filter_flows_by_prefix.py で prefix ごとの flow CSV を切り出す
@@ -31,7 +31,7 @@
 
 ```bash
 python scripts/prefix/evaluate_prefixes.py \
-  --flows results/flows/all/http_traffic.csv \
+  --flows results/flows/all/http_traffic/flows.csv \
   --aguri results/aguri/http_traffic/http_traffic.aguri_candidates.csv
 ```
 
@@ -52,7 +52,7 @@ python scripts/prefix/evaluate_prefixes.py \
 
 ```bash
 python scripts/prefix/filter_flows_by_prefix.py \
-  --flows results/flows/all/http_traffic.csv \
+  --flows results/flows/all/http_traffic/flows.csv \
   --selected results/prefix/http_traffic/selected_prefixes.csv \
   --write-combined
 ```
@@ -73,7 +73,7 @@ python scripts/prefix/filter_flows_by_prefix.py \
 
 ```bash
 python scripts/graph/plot_prefix_comparison.py \
-  --overall results/features/all/http_traffic_features.json \
+  --overall results/features/all/http_traffic/features.json \
   --prefix-dir results/features/prefix/http_traffic
 ```
 

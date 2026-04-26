@@ -52,7 +52,7 @@
 ### `pipeline/`
 
 - 一括実行用のディレクトリです
-- 現時点ではファイルは未配置です
+- `run_full_prefix_pipeline.py` で pcap から全体 vs prefix 比較まで一括実行できます
 
 ## 補助的・旧系統
 

@@ -7,7 +7,7 @@
 ### どこを見ればよいか
 
 - 全体フロー抽出の直後:
-  - `results/flows/all/`
+  - `results/flows/all/<dataset>/`
 - aguri 候補抽出の直後:
   - `results/aguri/<dataset>/`
 - prefix 評価の直後:
@@ -15,7 +15,7 @@
 - prefix flow 抽出の直後:
   - `results/flows/prefix/<dataset>/`
 - flow 要約の直後:
-  - `results/features/all/`
+  - `results/features/all/<dataset>/`
   - `results/features/prefix/`
 - 単独可視化の直後:
   - `results/flow_plots/all/<dataset>/`
@@ -28,9 +28,9 @@
 ```text
 pcap.gz
   ↓
-results/flows/all/<dataset>.csv
+results/flows/all/<dataset>/flows.csv
   ↓
-results/features/all/<dataset>_features.json
+results/features/all/<dataset>/features.json
   ↓
 results/flow_plots/all/<dataset>/
 
@@ -55,7 +55,8 @@ results/comparison/<dataset>/
   - 省略時は `results/flows/prefix/<flow_dataset_name>/`
 - `scripts/flow/summarize_flow_features.py`
   - 入力が `results/flows/prefix/...` 配下なら `results/features/prefix/...`
-  - それ以外は `results/features/all/`
+  - 入力が `results/flows/all/<dataset>/flows.csv` なら `results/features/all/<dataset>/features.json`
+  - それ以外は `results/features/all/<input_stem>/features.json`
 - `scripts/graph/plot_prefix_comparison.py`
   - 省略時は `results/comparison/<dataset_name>/`
 
@@ -65,7 +66,7 @@ results/comparison/<dataset>/
 
 - `results/flows/all/`
   - 全体 flow CSV を保存します
-  - 現在は `http_traffic.csv` があります
+  - 通常は `results/flows/all/<dataset>/flows.csv` の形で保存されます
 - `results/flows/prefix/`
   - prefix ごとの flow CSV を保存します
   - `filter_flows_by_prefix.py` は通常 `results/flows/prefix/<flow_dataset_name>/` を作成します
@@ -95,7 +96,7 @@ results/comparison/<dataset>/
 
 - `results/features/all/`
   - 全体 `features.json` を保存します
-  - 現在は `http_traffic_features.json` があります
+  - 通常は `results/features/all/<dataset>/features.json` の形で保存されます
 - `results/features/prefix/`
   - prefix ごとの `features.json` を保存します
   - `summarize_flow_features.py` の既定動作では、入力の相対パスに応じてサブディレクトリが作られることがあります

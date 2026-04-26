@@ -12,7 +12,7 @@
 - 互換オプション:
   - `--input_path` でも入力指定可能
 - 主なデフォルト:
-  - 出力先を省略した場合: `results/flows/all/<input_name>.csv`
+  - 出力先を省略した場合: `results/flows/all/<input_name>/flows.csv`
   - 進捗表示間隔: `--progress-every 1000000`
 - 最小実行例:
 
@@ -27,15 +27,15 @@ python scripts/flow/pcap_to_flow.py \
 - 必須オプション:
   - `--input`
 - 主なデフォルト:
-  - 全体 flow CSV を入力した場合: `results/features/all/<input_stem>_features.json`
+  - 全体 flow CSV `results/flows/all/<dataset>/flows.csv` を入力した場合: `results/features/all/<dataset>/features.json`
   - `results/flows/prefix/...` 配下の CSV を入力した場合: `results/features/prefix/.../<input_stem>_features.json`
-  - ヒストグラム bin 数: `--bins 20`
-  - 上位フロー記録数: `--top-n 10`
+  - ヒストグラム bin 数: `--hist-bins 20`
+  - 上位フロー記録数: `--top-n 20`
 - 最小実行例:
 
 ```bash
 python scripts/flow/summarize_flow_features.py \
-  --input results/flows/all/202604080000.csv
+  --input results/flows/all/202604080000/flows.csv
 ```
 
 ### 3. features JSON を可視化する
@@ -52,7 +52,7 @@ python scripts/flow/summarize_flow_features.py \
 
 ```bash
 python scripts/graph/plot_flow_features.py \
-  --input results/features/all/202604080000_features.json
+  --input results/features/all/202604080000/features.json
 ```
 
 ## パイプライン
@@ -62,11 +62,11 @@ pcap.gz / pcap / pcapng / pcapng.gz
   ↓
 pcap_to_flow.py
   ↓
-results/flows/all/*.csv
+results/flows/all/<dataset>/flows.csv
   ↓
 summarize_flow_features.py
   ↓
-results/features/all/*_features.json
+results/features/all/<dataset>/features.json
   ↓
 ../graph/plot_flow_features.py
   ↓
@@ -89,7 +89,7 @@ prefix ごとの flow CSV を要約する場合は、入力 CSV が `results/flo
 - 出力:
   - CSV
 - デフォルト出力先:
-  - `results/flows/all/<input_name>.csv`
+  - `results/flows/all/<input_name>/flows.csv`
 - 対象:
   - IPv4 / IPv6
   - TCP / UDP のみ
@@ -136,10 +136,11 @@ prefix ごとの flow CSV を要約する場合は、入力 CSV が `results/flo
   - `pcap_to_flow.py` の出力 CSV
   - `scripts/prefix/filter_flows_by_prefix.py` で切り出した prefix 別 CSV
 - 出力:
-  - `*_features.json`
+  - 全体 flow では `features.json`
+  - prefix flow では `*_features.json`
 - デフォルト出力先:
-  - 全体 flow: `results/features/all/`
-  - prefix flow: `results/features/prefix/`
+  - 全体 flow: `results/features/all/<dataset>/features.json`
+  - prefix flow: `results/features/prefix/<dataset>/<prefix>_features.json`
 - 入力 CSV に必須の列:
   - `flow_id`
   - `start_time`
@@ -232,7 +233,7 @@ prefix ごとの flow CSV を要約する場合は、入力 CSV が `results/flo
 ```bash
 python scripts/flow/pcap_to_flow.py \
   --input data/raw/sample.pcapng \
-  --output results/flows/all/sample.csv
+  --output results/flows/all/sample/flows.csv
 ```
 
 ### prefix 別 flow CSV を要約する
@@ -246,6 +247,6 @@ python scripts/flow/summarize_flow_features.py \
 
 ```bash
 python scripts/graph/plot_flow_features.py \
-  --input results/features/all/202604080000_features.json \
+  --input results/features/all/202604080000/features.json \
   --graph protocol
 ```
