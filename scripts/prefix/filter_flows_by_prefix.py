@@ -35,9 +35,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--out-dir",
-        default=Path("results/flows/prefix"),
+        default=None,
         type=Path,
-        help="Output directory. Default: results/flows/prefix",
+        help="Output directory. Defaults to results/flows/prefix/<flow_dataset_name>/",
     )
     parser.add_argument(
         "--write-separate",
@@ -65,6 +65,10 @@ def ensure_file_exists(path: Path, label: str) -> None:
 
 def resolve_from_repo_root(path: Path) -> Path:
     return path if path.is_absolute() else REPO_ROOT / path
+
+
+def default_output_dir(flows_path: Path) -> Path:
+    return REPO_ROOT / "results" / "flows" / "prefix" / flows_path.stem
 
 
 def warn(message: str) -> None:
@@ -171,7 +175,11 @@ def main() -> int:
     args = parse_args()
     flows_path = resolve_from_repo_root(args.flows.expanduser())
     selected_path = resolve_from_repo_root(args.selected.expanduser())
-    out_dir = resolve_from_repo_root(args.out_dir.expanduser())
+    out_dir = (
+        resolve_from_repo_root(args.out_dir.expanduser())
+        if args.out_dir is not None
+        else default_output_dir(flows_path)
+    )
 
     try:
         flows = load_csv(flows_path, "Flow CSV")

@@ -111,6 +111,9 @@ def default_output_dir_for_input(input_path: Path) -> Path:
         return REPO_ROOT / "results/features/all"
 
     if relative_input.parts[:3] == ("results", "flows", "prefix"):
+        prefix_parts = relative_input.parts[3:-1]
+        if prefix_parts:
+            return REPO_ROOT / "results" / "features" / "prefix" / Path(*prefix_parts)
         return REPO_ROOT / "results/features/prefix"
 
     return REPO_ROOT / "results/features/all"
