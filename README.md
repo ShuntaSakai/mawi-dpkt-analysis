@@ -15,7 +15,7 @@ scripts/flow/summarize_flow_features.py
   ↓
 features.json
   ↓
-scripts/flow/plot_flow_features.py
+scripts/graph/plot_flow_features.py
   ↓
 PNG 可視化
 ```
@@ -171,7 +171,7 @@ python scripts/flow/summarize_flow_features.py --input results/flows/20260408000
 - 入力: `results/flows/http_traffic.csv`
 - 出力: `results/features/http_traffic_features.json`
 
-### 3. `scripts/flow/plot_flow_features.py`
+### 3. `scripts/graph/plot_flow_features.py`
 
 目的:
 
@@ -230,7 +230,7 @@ python scripts/flow/summarize_flow_features.py --input results/flows/20260408000
 実行例:
 
 ```bash
-python scripts/flow/plot_flow_features.py --input results/features/202604080000_features.json
+python scripts/graph/plot_flow_features.py --input results/features/202604080000_features.json
 ```
 
 デフォルト出力:
@@ -263,7 +263,7 @@ python scripts/flow/summarize_flow_features.py \
 ### features.json から PNG を作る
 
 ```bash
-python scripts/flow/plot_flow_features.py \
+python scripts/graph/plot_flow_features.py \
   --input results/features/202604080000_features.json
 ```
 
@@ -313,7 +313,7 @@ python scripts/flow/plot_flow_features.py \
 
 - `scripts/flow/pcap_to_flow.py`: pcap / pcapng から双方向 flow CSV を生成
 - `scripts/flow/summarize_flow_features.py`: flow CSV から研究用 `features.json` を生成
-- `scripts/flow/plot_flow_features.py`: `features.json` から PNG を生成
+- `scripts/graph/plot_flow_features.py`: `features.json` から PNG を生成
 - `scripts/download_one.py`: MAWI の pcap.gz を 1 本取得
 - `scripts/analyze_one.py`: パケット統計中心の旧 JSON 生成スクリプト
 - `scripts/graph/plot_from_json.py`: 旧 JSON から PNG を生成するスクリプト
