@@ -12,6 +12,12 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+SCRIPTS_DIR = REPO_ROOT / "scripts"
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+
+from cli_output import format_tagged
+
 DEFAULT_OUTPUT_ROOT = REPO_ROOT / "results" / "aguri"
 AGURIM_SRC_DIR = REPO_ROOT / "scripts" / "aguri" / "agurim" / "src"
 DEFAULT_AGURI3_BIN = AGURIM_SRC_DIR / "aguri3"
@@ -22,6 +28,26 @@ SUPPORTED_CAPTURE_SUFFIXES: tuple[str, ...] = (
     ".pcapng",
     ".pcap",
 )
+
+
+def print_run(message: str) -> None:
+    print(format_tagged("[RUN]", message, "cyan"))
+
+
+def print_warn(message: str) -> None:
+    print(format_tagged("[WARN]", message, "yellow", stream=sys.stderr), file=sys.stderr)
+
+
+def print_done(message: str = "") -> None:
+    print(format_tagged("[DONE]", message, "green"))
+
+
+def print_info(message: str) -> None:
+    print(format_tagged("[INFO]", message, "blue"))
+
+
+def print_error(message: str) -> None:
+    print(format_tagged("Error:", message, "red", stream=sys.stderr), file=sys.stderr)
 
 
 def infer_dataset_name(pcap_path: Path) -> str:
@@ -99,22 +125,19 @@ def prepare_input_capture(pcap_path: Path) -> tuple[Path, tempfile.TemporaryDire
     temp_dir = tempfile.TemporaryDirectory(prefix="run-aguri-")
     decompressed_path = Path(temp_dir.name) / f"{pcap_path.stem}"
 
-    print(f"[INFO] Decompressing {pcap_path} -> {decompressed_path}")
+    print_info(f"Decompressing {pcap_path} -> {decompressed_path}")
     with gzip.open(pcap_path, "rb") as src, decompressed_path.open("wb") as dst:
         shutil.copyfileobj(src, dst)
 
     if suffix not in {".pcap", ".pcapng"}:
-        print(
-            f"[WARN] Decompressed input has unexpected suffix: {decompressed_path.name}",
-            file=sys.stderr,
-        )
+        print_warn(f"Decompressed input has unexpected suffix: {decompressed_path.name}")
 
     return decompressed_path, temp_dir
 
 
 def run_command(cmd: list[str]) -> None:
     printable = shlex.join(cmd)
-    print(f"[RUN] {printable}")
+    print_run(printable)
     try:
         subprocess.run(cmd, check=True)
     except subprocess.CalledProcessError as exc:
@@ -190,7 +213,7 @@ def main() -> int:
         ensure_outputs_writable(agr_path, agurim_txt_path, args.force)
         prepared_pcap_path, temp_dir = prepare_input_capture(pcap_path)
     except (FileExistsError, FileNotFoundError) as exc:
-        print(f"Error: {exc}", file=sys.stderr)
+        print_error(str(exc))
         return 1
 
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -214,13 +237,13 @@ def main() -> int:
             ]
         )
     except RuntimeError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
+        print_error(str(exc))
         return 1
     finally:
         if temp_dir is not None:
             temp_dir.cleanup()
 
-    print("[DONE]")
+    print_done()
     print(f"AGR: {agr_path}")
     print(f"TXT: {agurim_txt_path}")
     return 0

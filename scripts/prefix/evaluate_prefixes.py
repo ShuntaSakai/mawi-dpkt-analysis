@@ -10,6 +10,12 @@ from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+SCRIPTS_DIR = REPO_ROOT / "scripts"
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+
+from cli_output import format_tagged
+
 DEFAULT_CONFIG_PATH = REPO_ROOT / "config/prefix_selection.yaml"
 pd = None
 yaml = None
@@ -773,7 +779,7 @@ def main() -> int:
         aguri, aguri_warnings = prepare_aguri(aguri_raw)
         rows, evaluation_warnings = build_evaluation_rows(flows, aguri, config)
     except (FileNotFoundError, ValueError) as exc:
-        print(f"Error: {exc}", file=sys.stderr)
+        print(format_tagged("Error:", str(exc), "red", stream=sys.stderr), file=sys.stderr)
         return 1
 
     warnings = config_warnings + flow_warnings + aguri_warnings + evaluation_warnings
@@ -785,21 +791,27 @@ def main() -> int:
     )
 
     if evaluation["score"].isna().any():
-        print("Error: score calculation produced NaN.", file=sys.stderr)
+        print(format_tagged("Error:", "score calculation produced NaN.", "red", stream=sys.stderr), file=sys.stderr)
         return 1
 
     evaluation_path, selected_path = write_outputs(evaluation_with_flags, selected, out_dir)
 
     for warning in warnings:
-        print(f"[WARN] {warning}", file=sys.stderr)
+        print(format_tagged("[WARN]", warning, "yellow", stream=sys.stderr), file=sys.stderr)
 
     if evaluation_with_flags.empty:
-        print("[WARN] No valid prefix candidates were evaluated.", file=sys.stderr)
+        print(
+            format_tagged("[WARN]", "No valid prefix candidates were evaluated.", "yellow", stream=sys.stderr),
+            file=sys.stderr,
+        )
     if selected.empty:
-        print("[WARN] No prefixes passed the configured filters.", file=sys.stderr)
+        print(
+            format_tagged("[WARN]", "No prefixes passed the configured filters.", "yellow", stream=sys.stderr),
+            file=sys.stderr,
+        )
 
-    print(f"[DONE] evaluated prefixes: {len(evaluation_with_flags)}")
-    print(f"[DONE] selected prefixes: {len(selected)}")
+    print(format_tagged("[DONE]", f"evaluated prefixes: {len(evaluation_with_flags)}", "green"))
+    print(format_tagged("[DONE]", f"selected prefixes: {len(selected)}", "green"))
     print(f"evaluation: {evaluation_path}")
     print(f"selected:   {selected_path}")
     return 0

@@ -11,6 +11,11 @@ from typing import Iterable
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+SCRIPTS_DIR = REPO_ROOT / "scripts"
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+
+from cli_output import format_tagged
 
 AGGREGATE_RE = re.compile(
     r"^\[\s*(?P<id>\d+)\]\s+"
@@ -237,18 +242,18 @@ def main() -> int:
         ensure_output_writable(output_path, args.force)
         result = parse_agurim_txt(input_path, strict=args.strict)
     except (FileExistsError, FileNotFoundError, ValueError) as exc:
-        print(f"Error: {exc}", file=sys.stderr)
+        print(format_tagged("Error:", str(exc), "red", stream=sys.stderr), file=sys.stderr)
         return 1
 
     write_csv(result.rows, output_path)
 
     for warning in result.warnings:
-        print(f"[WARN] {warning}", file=sys.stderr)
+        print(format_tagged("[WARN]", warning, "yellow", stream=sys.stderr), file=sys.stderr)
 
     if not result.rows:
-        print("[WARN] No aggregates were parsed.", file=sys.stderr)
+        print(format_tagged("[WARN]", "No aggregates were parsed.", "yellow", stream=sys.stderr), file=sys.stderr)
 
-    print(f"[DONE] parsed {len(result.rows)} aggregates")
+    print(format_tagged("[DONE]", f"parsed {len(result.rows)} aggregates", "green"))
     print(f"CSV: {output_path}")
     return 0
 

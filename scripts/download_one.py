@@ -7,6 +7,12 @@ import urllib.request
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+SCRIPTS_DIR = REPO_ROOT / "scripts"
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+
+from cli_output import colorize_tag, format_tagged
+
 DEFAULT_URL = "https://mawi.wide.ad.jp/mawi/ditl/ditl2026/202604080000.pcap.gz"
 DEFAULT_OUTDIR = REPO_ROOT / "data/raw"
 
@@ -44,23 +50,24 @@ def download_file(url: str, outdir: Path, force: bool = False) -> Path:
     outpath = outdir / filename
 
     if outpath.exists() and not force:
-        print(f"[skip] already exists: {outpath}")
+        print(format_tagged("[skip]", f"already exists: {outpath}", "yellow"))
         return outpath
 
-    print(f"[info] downloading: {url}")
-    print(f"[info] save to    : {outpath}")
+    print(format_tagged("[info]", f"downloading: {url}", "blue"))
+    print(format_tagged("[info]", f"save to    : {outpath}", "blue"))
 
     def reporthook(block_num: int, block_size: int, total_size: int) -> None:
         """``urlretrieve`` から渡されるブロック情報を使って進捗を表示する。"""
+        progress_tag = colorize_tag("[downloading]", "cyan")
         if total_size <= 0:
             downloaded = block_num * block_size
-            print(f"\r[downloading] {format_size(downloaded)}", end="", flush=True)
+            print(f"\r{progress_tag} {format_size(downloaded)}", end="", flush=True)
             return
 
         downloaded = min(block_num * block_size, total_size)
         percent = downloaded / total_size * 100
         print(
-            f"\r[downloading] {percent:6.2f}% "
+            f"\r{progress_tag} {percent:6.2f}% "
             f"({format_size(downloaded)} / {format_size(total_size)})",
             end="",
             flush=True,
@@ -75,7 +82,7 @@ def download_file(url: str, outdir: Path, force: bool = False) -> Path:
             outpath.unlink(missing_ok=True)
         raise RuntimeError(f"download failed: {e}") from e
 
-    print(f"[done] downloaded: {outpath}")
+    print(format_tagged("[done]", f"downloaded: {outpath}", "green"))
     return outpath
 
 
@@ -122,7 +129,7 @@ def main() -> int:
         download_file(args.url, outdir, force=args.force)
         return 0
     except Exception as e:
-        print(f"[error] {e}", file=sys.stderr)
+        print(format_tagged("[error]", str(e), "red", stream=sys.stderr), file=sys.stderr)
         return 1
 
 

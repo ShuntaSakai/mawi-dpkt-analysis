@@ -15,6 +15,7 @@ SCRIPTS_DIR = REPO_ROOT / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
+from cli_output import format_tagged
 from download_one import DEFAULT_OUTDIR, download_file
 
 SUPPORTED_CAPTURE_SUFFIXES: tuple[str, ...] = (
@@ -154,15 +155,23 @@ def parse_args() -> argparse.Namespace:
 
 
 def print_step(step_no: int, description: str) -> None:
-    print(f"[STEP {step_no}] {description}")
+    print(format_tagged(f"[STEP {step_no}]", description, "blue"))
 
 
 def print_done(message: str) -> None:
-    print(f"[DONE] {message}")
+    print(format_tagged("[DONE]", message, "green"))
 
 
 def print_warn(message: str) -> None:
-    print(f"[WARN] {message}")
+    print(format_tagged("[WARN]", message, "yellow"))
+
+
+def print_run(message: str) -> None:
+    print(format_tagged("[RUN]", message, "cyan"))
+
+
+def print_error(message: str) -> None:
+    print(format_tagged("Error:", message, "red", stream=sys.stderr), file=sys.stderr)
 
 
 def ensure_file_exists(path: Path, label: str) -> None:
@@ -188,7 +197,7 @@ def run_step(
     dry_run: bool,
 ) -> None:
     print_step(step_no, description)
-    print(f"[RUN] {shlex.join(cmd)}")
+    print_run(shlex.join(cmd))
 
     if dry_run:
         print_done("dry-run only")
@@ -357,7 +366,7 @@ def prepare_input_pcap(args: argparse.Namespace) -> Path:
         filename = args.url.rstrip("/").split("/")[-1]
         planned_path = download_dir / filename
         print_step(0, "Download capture file")
-        print(f"[RUN] download {args.url} -> {planned_path}")
+        print_run(f"download {args.url} -> {planned_path}")
         print_done("dry-run only")
         return planned_path
 
@@ -394,7 +403,7 @@ def main() -> int:
         ensure_can_write(prefix_evaluation_path(dataset), args.force)
         ensure_can_write(selected_prefixes_path(dataset), args.force)
     except (FileExistsError, FileNotFoundError) as exc:
-        print(f"Error: {exc}", file=sys.stderr)
+        print_error(str(exc))
         return 1
 
     flow_csv = flow_csv_path(dataset)
@@ -637,10 +646,10 @@ def main() -> int:
         )
         print_done(str(comparison_output_dir(dataset)))
     except (FileExistsError, FileNotFoundError) as exc:
-        print(f"Error: {exc}", file=sys.stderr)
+        print_error(str(exc))
         return 1
     except RuntimeError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
+        print_error(str(exc))
         return 1
 
     return 0
