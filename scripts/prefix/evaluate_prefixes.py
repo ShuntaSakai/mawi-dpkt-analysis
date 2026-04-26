@@ -13,6 +13,9 @@ import pandas as pd
 import yaml
 
 
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+DEFAULT_CONFIG_PATH = REPO_ROOT / "config/prefix_selection.yaml"
+
 REQUIRED_CONFIG_KEYS = {
     "prefix_len",
     "min_flows",
@@ -133,14 +136,35 @@ class PrefixInfo:
         return self.network.prefixlen == self.network.max_prefixlen
 
 
+def resolve_from_repo_root(path: Path) -> Path:
+    return path if path.is_absolute() else REPO_ROOT / path
+
+
+def default_output_dir(aguri_path: Path) -> Path:
+    name = aguri_path.name
+    suffix = ".aguri_candidates.csv"
+    stem = name[: -len(suffix)] if name.endswith(suffix) else aguri_path.stem
+    return REPO_ROOT / "results/prefix" / stem
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Evaluate aguri prefix candidates using flow CSV."
     )
     parser.add_argument("--flows", required=True, type=Path, help="Input flow CSV.")
     parser.add_argument("--aguri", required=True, type=Path, help="Input aguri_candidates.csv.")
-    parser.add_argument("--config", required=True, type=Path, help="prefix_selection.yaml.")
-    parser.add_argument("--out-dir", required=True, type=Path, help="Output directory.")
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=Path("config/prefix_selection.yaml"),
+        help=f"prefix_selection.yaml. Default: {DEFAULT_CONFIG_PATH}",
+    )
+    parser.add_argument(
+        "--out-dir",
+        type=Path,
+        default=None,
+        help="Output directory. Default: results/prefix/<aguri_dataset_name>",
+    )
     return parser.parse_args()
 
 
@@ -604,11 +628,19 @@ def write_outputs(
 
 def main() -> int:
     args = parse_args()
+    flows_path = resolve_from_repo_root(args.flows.expanduser())
+    aguri_path = resolve_from_repo_root(args.aguri.expanduser())
+    config_path = resolve_from_repo_root(args.config.expanduser())
+    out_dir = (
+        resolve_from_repo_root(args.out_dir.expanduser())
+        if args.out_dir is not None
+        else default_output_dir(aguri_path)
+    )
 
     try:
-        config, config_warnings = load_config(args.config)
-        flows_raw = load_csv(args.flows, "Flow CSV")
-        aguri_raw = load_csv(args.aguri, "aguri CSV")
+        config, config_warnings = load_config(config_path)
+        flows_raw = load_csv(flows_path, "Flow CSV")
+        aguri_raw = load_csv(aguri_path, "aguri CSV")
         flows, flow_warnings = prepare_flows(flows_raw)
         aguri, aguri_warnings = prepare_aguri(aguri_raw)
         rows, evaluation_warnings = build_evaluation_rows(flows, aguri, config)
@@ -628,7 +660,7 @@ def main() -> int:
         print("Error: score calculation produced NaN.", file=sys.stderr)
         return 1
 
-    evaluation_path, selected_path = write_outputs(evaluation_with_flags, selected, args.out_dir)
+    evaluation_path, selected_path = write_outputs(evaluation_with_flags, selected, out_dir)
 
     for warning in warnings:
         print(f"[WARN] {warning}", file=sys.stderr)
