@@ -5,9 +5,10 @@ import argparse
 import csv
 import json
 import math
+from array import array
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
-from heapq import nlargest
+from heapq import heappush, heapreplace
 from pathlib import Path
 from statistics import mean, median, pvariance, pstdev
 from typing import Any
@@ -98,6 +99,150 @@ TOP_KEYS = [
     "pps",
     "bps",
 ]
+
+
+TOP_RECORD_FIELDS = (
+    "flow_id",
+    "src_ip",
+    "src_port",
+    "dst_ip",
+    "dst_port",
+    "protocol",
+    "duration",
+    "packet_count",
+    "byte_count",
+    "avg_packet_size",
+    "packets_from_src_ratio",
+    "bytes_from_src_ratio",
+)
+
+
+class TopNTracker:
+    def __init__(self, key: str, limit: int) -> None:
+        self.key = key
+        self.limit = limit
+        self._heap: list[tuple[float, int, dict[str, Any]]] = []
+
+    def add(self, flow: dict[str, Any]) -> None:
+        record = {field: flow[field] for field in TOP_RECORD_FIELDS}
+        record[self.key] = flow[self.key]
+        item = (float(flow[self.key]), int(flow["flow_id"]), record)
+
+        if len(self._heap) < self.limit:
+            heappush(self._heap, item)
+            return
+
+        if item > self._heap[0]:
+            heapreplace(self._heap, item)
+
+    def records_desc(self) -> list[dict[str, Any]]:
+        return [
+            record
+            for _, _, record in sorted(
+                self._heap,
+                key=lambda item: (item[0], item[1]),
+                reverse=True,
+            )
+        ]
+
+
+class OnlineStats:
+    def __init__(self) -> None:
+        self.count = 0
+        self.min_value = 0.0
+        self.max_value = 0.0
+        self.mean_value = 0.0
+        self.m2 = 0.0
+
+    def add(self, value: float) -> None:
+        self.count += 1
+        if self.count == 1:
+            self.min_value = value
+            self.max_value = value
+            self.mean_value = value
+            self.m2 = 0.0
+            return
+
+        if value < self.min_value:
+            self.min_value = value
+        if value > self.max_value:
+            self.max_value = value
+
+        delta = value - self.mean_value
+        self.mean_value += delta / self.count
+        delta2 = value - self.mean_value
+        self.m2 += delta * delta2
+
+    def basic_stats(self) -> dict[str, float | int]:
+        if self.count == 0:
+            return {
+                "count": 0,
+                "min": 0.0,
+                "max": 0.0,
+                "mean": 0.0,
+                "population_variance": 0.0,
+                "population_stddev": 0.0,
+            }
+
+        variance = self.m2 / self.count
+        return {
+            "count": self.count,
+            "min": self.min_value,
+            "max": self.max_value,
+            "mean": self.mean_value,
+            "population_variance": variance,
+            "population_stddev": math.sqrt(variance),
+        }
+
+
+class FeatureCollector:
+    def __init__(self) -> None:
+        self.values = array("d")
+        self.stats = OnlineStats()
+
+    def add(self, value: float) -> None:
+        self.values.append(value)
+        self.stats.add(value)
+
+    def summarize(self, bins: int) -> dict[str, Any]:
+        values = self.values
+        if not values:
+            return {
+                "stats": {
+                    **self.stats.basic_stats(),
+                    "median": 0.0,
+                    "p01": 0.0,
+                    "p05": 0.0,
+                    "p25": 0.0,
+                    "p75": 0.0,
+                    "p90": 0.0,
+                    "p95": 0.0,
+                    "p99": 0.0,
+                },
+                "histogram": build_histogram(values, bins),
+                "log_histogram": build_log_histogram(values, bins),
+            }
+
+        return {
+            "stats": {
+                "count": len(values),
+                "min": min(values),
+                "max": max(values),
+                "mean": mean(values),
+                "population_variance": pvariance(values),
+                "population_stddev": pstdev(values),
+                "median": median(values),
+                "p01": percentile(values, 1),
+                "p05": percentile(values, 5),
+                "p25": percentile(values, 25),
+                "p75": percentile(values, 75),
+                "p90": percentile(values, 90),
+                "p95": percentile(values, 95),
+                "p99": percentile(values, 99),
+            },
+            "histogram": build_histogram(values, bins),
+            "log_histogram": build_log_histogram(values, bins),
+        }
 
 
 def resolve_from_repo_root(path: Path) -> Path:
@@ -240,51 +385,6 @@ def build_log_histogram(values: list[float], bins: int) -> dict[str, Any] | None
     }
 
 
-def summarize_numeric(values: list[float], bins: int) -> dict[str, Any]:
-    if not values:
-        return {
-            "stats": {
-                "count": 0,
-                "min": 0.0,
-                "max": 0.0,
-                "mean": 0.0,
-                "population_variance": 0.0,
-                "population_stddev": 0.0,
-                "median": 0.0,
-                "p01": 0.0,
-                "p05": 0.0,
-                "p25": 0.0,
-                "p75": 0.0,
-                "p90": 0.0,
-                "p95": 0.0,
-                "p99": 0.0,
-            },
-            "histogram": build_histogram(values, bins),
-            "log_histogram": build_log_histogram(values, bins),
-        }
-
-    return {
-        "stats": {
-            "count": len(values),
-            "min": min(values),
-            "max": max(values),
-            "mean": mean(values),
-            "population_variance": pvariance(values),
-            "population_stddev": pstdev(values),
-            "median": median(values),
-            "p01": percentile(values, 1),
-            "p05": percentile(values, 5),
-            "p25": percentile(values, 25),
-            "p75": percentile(values, 75),
-            "p90": percentile(values, 90),
-            "p95": percentile(values, 95),
-            "p99": percentile(values, 99),
-        },
-        "histogram": build_histogram(values, bins),
-        "log_histogram": build_log_histogram(values, bins),
-    }
-
-
 def validate_csv_header(fieldnames: list[str] | None) -> None:
     if fieldnames is None:
         raise ValueError("CSV header is missing")
@@ -344,10 +444,51 @@ def parse_flow_row(row: dict[str, str]) -> dict[str, Any]:
     return flow
 
 
-def load_flows(csv_path: Path) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    flows: list[dict[str, Any]] = []
+def summarize_csv(
+    csv_path: Path,
+    input_path: Path,
+    dataset_name: str,
+    top_n: int,
+    bins: int,
+) -> dict[str, Any]:
     invalid_row_examples: list[dict[str, Any]] = []
     invalid_row_count = 0
+    total_flows = 0
+    packet_total = 0
+    byte_total = 0
+    first_start_time: float | None = None
+    last_end_time: float | None = None
+
+    feature_collectors: dict[str, FeatureCollector] = {
+        "duration": FeatureCollector(),
+        "packet_count": FeatureCollector(),
+        "byte_count": FeatureCollector(),
+        "pps": FeatureCollector(),
+        "bps": FeatureCollector(),
+        "avg_packet_size": FeatureCollector(),
+        "packets_from_src_ratio": FeatureCollector(),
+        "bytes_from_src_ratio": FeatureCollector(),
+    }
+    start_times = array("d")
+    protocol_counter: Counter[int] = Counter()
+    protocol_packet_totals: Counter[int] = Counter()
+    protocol_byte_totals: Counter[int] = Counter()
+    protocol_duration_collectors: dict[int, FeatureCollector] = defaultdict(FeatureCollector)
+    tcp_flag_totals = {
+        "syn_count": 0,
+        "syn_ack_count": 0,
+        "ack_count": 0,
+        "fin_count": 0,
+        "rst_count": 0,
+    }
+    short_flow_count = 0
+    tiny_flow_count = 0
+    rst_flow_count = 0
+    syn_only_like_count = 0
+    top_trackers = {
+        key: TopNTracker(key=key, limit=top_n)
+        for key in TOP_KEYS
+    }
 
     with csv_path.open("r", encoding="utf-8", newline="") as f:
         reader = csv.DictReader(f)
@@ -355,7 +496,7 @@ def load_flows(csv_path: Path) -> tuple[list[dict[str, Any]], dict[str, Any]]:
 
         for row_number, row in enumerate(reader, start=2):
             try:
-                flows.append(parse_flow_row(row))
+                flow = parse_flow_row(row)
             except ValueError as exc:
                 invalid_row_count += 1
 
@@ -369,131 +510,74 @@ def load_flows(csv_path: Path) -> tuple[list[dict[str, Any]], dict[str, Any]]:
                         }
                     )
 
-    return flows, {
-        "invalid_row_count": invalid_row_count,
-        "invalid_row_examples": invalid_row_examples,
-    }
+                continue
 
+            total_flows += 1
+            packet_total += flow["packet_count"]
+            byte_total += flow["byte_count"]
 
-def calc_flow_inter_arrival_times(flows: list[dict[str, Any]]) -> list[float]:
-    start_times = sorted(flow["start_time"] for flow in flows)
-    return [
-        start_times[i] - start_times[i - 1]
-        for i in range(1, len(start_times))
+            start_time = flow["start_time"]
+            end_time = flow["end_time"]
+            start_times.append(start_time)
+            first_start_time = start_time if first_start_time is None else min(first_start_time, start_time)
+            last_end_time = end_time if last_end_time is None else max(last_end_time, end_time)
+
+            for feature_name, collector in feature_collectors.items():
+                collector.add(float(flow[feature_name]))
+
+            proto = flow["protocol"]
+            protocol_counter[proto] += 1
+            protocol_packet_totals[proto] += flow["packet_count"]
+            protocol_byte_totals[proto] += flow["byte_count"]
+            protocol_duration_collectors[proto].add(flow["duration"])
+
+            for key in tcp_flag_totals:
+                tcp_flag_totals[key] += flow[key]
+
+            if flow["duration"] <= 1.0:
+                short_flow_count += 1
+            if flow["packet_count"] <= 3:
+                tiny_flow_count += 1
+            if flow["rst_count"] > 0:
+                rst_flow_count += 1
+            if (
+                flow["syn_count"] > 0
+                and flow["ack_count"] == 0
+                and flow["byte_count"] == 0
+            ):
+                syn_only_like_count += 1
+
+            for tracker in top_trackers.values():
+                tracker.add(flow)
+
+    inter_arrival_times = [
+        sorted_start_times[i] - sorted_start_times[i - 1]
+        for sorted_start_times in [sorted(start_times)]
+        for i in range(1, len(sorted_start_times))
     ]
 
-
-def top_records(
-    flows: list[dict[str, Any]],
-    key: str,
-    limit: int,
-) -> list[dict[str, Any]]:
-    records: list[dict[str, Any]] = []
-
-    for flow in nlargest(limit, flows, key=lambda item: item[key]):
-        records.append(
-            {
-                "flow_id": flow["flow_id"],
-                "src_ip": flow["src_ip"],
-                "src_port": flow["src_port"],
-                "dst_ip": flow["dst_ip"],
-                "dst_port": flow["dst_port"],
-                "protocol": flow["protocol"],
-                key: flow[key],
-                "duration": flow["duration"],
-                "packet_count": flow["packet_count"],
-                "byte_count": flow["byte_count"],
-                "avg_packet_size": flow["avg_packet_size"],
-                "packets_from_src_ratio": flow["packets_from_src_ratio"],
-                "bytes_from_src_ratio": flow["bytes_from_src_ratio"],
-            }
-        )
-
-    return records
-
-
-def summarize_protocols(flows: list[dict[str, Any]]) -> dict[str, Any]:
-    grouped: dict[int, list[dict[str, Any]]] = defaultdict(list)
-    for flow in flows:
-        grouped[flow["protocol"]].append(flow)
-
-    summary: dict[str, Any] = {}
-    total_flows = len(flows)
-
-    for proto, proto_flows in sorted(grouped.items()):
-        packet_total = sum(flow["packet_count"] for flow in proto_flows)
-        byte_total = sum(flow["byte_count"] for flow in proto_flows)
-        summary[str(proto)] = {
-            "flow_count": len(proto_flows),
-            "flow_ratio": (len(proto_flows) / total_flows) if total_flows > 0 else 0.0,
-            "packet_total": packet_total,
-            "byte_total": byte_total,
-            "duration": summarize_numeric(
-                [flow["duration"] for flow in proto_flows],
-                bins=20,
-            )["stats"],
-        }
-
-    return summary
-
-
-def summarize_behavioral_indicators(flows: list[dict[str, Any]]) -> dict[str, Any]:
-    total_flows = len(flows)
-    if total_flows == 0:
-        return {
-            "short_flow_ratio_le_1s": 0.0,
-            "tiny_flow_ratio_le_3packets": 0.0,
-            "rst_observed_flow_ratio": 0.0,
-            "syn_only_like_flow_ratio": 0.0,
-        }
-
-    short_flow_count = sum(1 for flow in flows if flow["duration"] <= 1.0)
-    tiny_flow_count = sum(1 for flow in flows if flow["packet_count"] <= 3)
-    rst_flow_count = sum(1 for flow in flows if flow["rst_count"] > 0)
-    syn_only_like_count = sum(
-        1
-        for flow in flows
-        if flow["syn_count"] > 0
-        and flow["ack_count"] == 0
-        and flow["byte_count"] == 0
-    )
-
-    return {
-        "short_flow_ratio_le_1s": short_flow_count / total_flows,
-        "tiny_flow_ratio_le_3packets": tiny_flow_count / total_flows,
-        "rst_observed_flow_ratio": rst_flow_count / total_flows,
-        "syn_only_like_flow_ratio": syn_only_like_count / total_flows,
-    }
-
-
-def summarize_flows(
-    flows: list[dict[str, Any]],
-    input_path: Path,
-    dataset_name: str,
-    top_n: int,
-    bins: int,
-    invalid_info: dict[str, Any],
-) -> dict[str, Any]:
-    inter_arrival_times = calc_flow_inter_arrival_times(flows)
-    packet_total = sum(flow["packet_count"] for flow in flows)
-    byte_total = sum(flow["byte_count"] for flow in flows)
-    start_times = [flow["start_time"] for flow in flows]
-    end_times = [flow["end_time"] for flow in flows]
-
-    tcp_flag_totals = {
-        "syn_count": sum(flow["syn_count"] for flow in flows),
-        "syn_ack_count": sum(flow["syn_ack_count"] for flow in flows),
-        "ack_count": sum(flow["ack_count"] for flow in flows),
-        "fin_count": sum(flow["fin_count"] for flow in flows),
-        "rst_count": sum(flow["rst_count"] for flow in flows),
-    }
-
-    total_flows = len(flows)
     tcp_flag_rates_per_flow = {
         key.replace("_count", "_per_flow"): (
             value / total_flows if total_flows > 0 else 0.0
         )
         for key, value in tcp_flag_totals.items()
+    }
+
+    protocol_summary: dict[str, Any] = {}
+    for proto in sorted(protocol_counter):
+        protocol_summary[str(proto)] = {
+            "flow_count": protocol_counter[proto],
+            "flow_ratio": (protocol_counter[proto] / total_flows) if total_flows > 0 else 0.0,
+            "packet_total": protocol_packet_totals[proto],
+            "byte_total": protocol_byte_totals[proto],
+            "duration": protocol_duration_collectors[proto].summarize(bins=20)["stats"],
+        }
+
+    behavioral_indicators = {
+        "short_flow_ratio_le_1s": short_flow_count / total_flows if total_flows > 0 else 0.0,
+        "tiny_flow_ratio_le_3packets": tiny_flow_count / total_flows if total_flows > 0 else 0.0,
+        "rst_observed_flow_ratio": rst_flow_count / total_flows if total_flows > 0 else 0.0,
+        "syn_only_like_flow_ratio": syn_only_like_count / total_flows if total_flows > 0 else 0.0,
     }
 
     summary: dict[str, Any] = {
@@ -516,52 +600,53 @@ def summarize_flows(
         },
         "totals": {
             "valid_flow_count": total_flows,
-            "invalid_row_count": invalid_info["invalid_row_count"],
+            "invalid_row_count": invalid_row_count,
             "packet_total": packet_total,
             "byte_total": byte_total,
-            "first_start_time": min(start_times) if start_times else None,
-            "last_end_time": max(end_times) if end_times else None,
+            "first_start_time": first_start_time,
+            "last_end_time": last_end_time,
             "capture_span_seconds": (
-                max(end_times) - min(start_times) if start_times and end_times else 0.0
+                (last_end_time - first_start_time)
+                if first_start_time is not None and last_end_time is not None
+                else 0.0
             ),
         },
-        "invalid_rows": invalid_info,
+        "invalid_rows": {
+            "invalid_row_count": invalid_row_count,
+            "invalid_row_examples": invalid_row_examples,
+        },
         "features": {},
-        "protocol_summary": summarize_protocols(flows),
-        "behavioral_indicators": summarize_behavioral_indicators(flows),
+        "protocol_summary": protocol_summary,
+        "behavioral_indicators": behavioral_indicators,
         "tcp_flag_totals": tcp_flag_totals,
         "tcp_flag_rates_per_flow": tcp_flag_rates_per_flow,
         "top": {},
     }
 
-    feature_values = {
-        "flow_inter_arrival_time": inter_arrival_times,
-        "duration": [flow["duration"] for flow in flows],
-        "packet_count": [float(flow["packet_count"]) for flow in flows],
-        "byte_count": [float(flow["byte_count"]) for flow in flows],
-        "pps": [flow["pps"] for flow in flows],
-        "bps": [flow["bps"] for flow in flows],
-        "avg_packet_size": [flow["avg_packet_size"] for flow in flows],
-        "packets_from_src_ratio": [flow["packets_from_src_ratio"] for flow in flows],
-        "bytes_from_src_ratio": [flow["bytes_from_src_ratio"] for flow in flows],
+    inter_arrival_collector = FeatureCollector()
+    for value in inter_arrival_times:
+        inter_arrival_collector.add(value)
+
+    combined_feature_collectors = {
+        "flow_inter_arrival_time": inter_arrival_collector,
+        **feature_collectors,
     }
 
-    for feature_name, values in feature_values.items():
+    for feature_name, collector in combined_feature_collectors.items():
         summary["features"][feature_name] = {
             "unit": FEATURE_SPECS[feature_name]["unit"],
             "description": FEATURE_SPECS[feature_name]["description"],
             "log_scale_recommended": FEATURE_SPECS[feature_name]["log_scale_recommended"],
-            **summarize_numeric(values, bins),
+            **collector.summarize(bins),
         }
 
-    protocol_counter = Counter(flow["protocol"] for flow in flows)
     summary["protocol_counts"] = {
         str(proto): count
         for proto, count in sorted(protocol_counter.items())
     }
 
-    for key in TOP_KEYS:
-        summary["top"][f"by_{key}"] = top_records(flows, key, top_n)
+    for key, tracker in top_trackers.items():
+        summary["top"][f"by_{key}"] = tracker.records_desc()
 
     return summary
 
@@ -648,15 +733,13 @@ def main() -> int:
         return 1
 
     try:
-        flows, invalid_info = load_flows(input_path)
         dataset_name = infer_dataset_name(input_path)
-        summary = summarize_flows(
-            flows=flows,
+        summary = summarize_csv(
+            csv_path=input_path,
             input_path=input_path,
             dataset_name=dataset_name,
             top_n=args.top_n,
             bins=args.hist_bins,
-            invalid_info=invalid_info,
         )
     except ValueError as exc:
         print(f"[error] {exc}")
