@@ -135,7 +135,7 @@ def build_parser() -> argparse.ArgumentParser:
     optional_args.add_argument(
         "--force",
         action="store_true",
-        help="Overwrite existing output files and re-run all steps.",
+        help="Ignore existing outputs, overwrite them, and re-run all steps from scratch.",
     )
     optional_args.add_argument(
         "--force-download",
@@ -187,6 +187,16 @@ def ensure_can_write(path: Path, force: bool) -> None:
             f"Output file already exists: {path}\n"
             "Re-run with --force to overwrite."
         )
+
+
+def outputs_exist(paths: list[Path]) -> bool:
+    return all(path.exists() and path.is_file() for path in paths)
+
+
+def print_skip(step_no: int, description: str, paths: list[Path]) -> None:
+    print_step(step_no, description)
+    joined = ", ".join(str(path) for path in paths)
+    print_warn(f"skip existing outputs: {joined}")
 
 
 def run_step(
@@ -347,6 +357,13 @@ def list_prefix_flow_files(dataset: str) -> list[Path]:
     )
 
 
+def expected_prefix_flow_paths(dataset: str, prefixes: list[str]) -> list[Path]:
+    return [
+        prefix_flow_dir(dataset) / f"dst_{prefix_to_filename(prefix)}.csv"
+        for prefix in prefixes
+    ]
+
+
 def cleanup_force_outputs(dataset: str) -> None:
     for path in (
         prefix_flow_dir(dataset),
@@ -395,13 +412,6 @@ def main() -> int:
         if not args.dry_run:
             ensure_file_exists(pcap_path, "Input pcap")
         ensure_file_exists(config_path, "Config file")
-        ensure_can_write(flow_csv_path(dataset), args.force)
-        ensure_can_write(overall_features_path(dataset), args.force)
-        ensure_can_write(aguri_agr_path(dataset), args.force)
-        ensure_can_write(agurim_txt_path(dataset), args.force)
-        ensure_can_write(aguri_candidates_path(dataset), args.force)
-        ensure_can_write(prefix_evaluation_path(dataset), args.force)
-        ensure_can_write(selected_prefixes_path(dataset), args.force)
     except (FileExistsError, FileNotFoundError) as exc:
         print_error(str(exc))
         return 1
@@ -418,86 +428,103 @@ def main() -> int:
         if args.force and not args.dry_run:
             cleanup_force_outputs(dataset)
 
-        run_step(
-            1,
-            "Aggregate packets into bidirectional flows",
-            [
-                sys.executable,
-                str(REPO_ROOT / "scripts" / "flow" / "pcap_to_flow.py"),
-                "--input",
-                str(pcap_path),
-                "--output",
-                str(flow_csv),
-            ],
-            dry_run=args.dry_run,
-        )
-        print_done(str(flow_csv))
+        if not args.force and outputs_exist([flow_csv]):
+            print_skip(1, "Aggregate packets into bidirectional flows", [flow_csv])
+        else:
+            run_step(
+                1,
+                "Aggregate packets into bidirectional flows",
+                [
+                    sys.executable,
+                    str(REPO_ROOT / "scripts" / "flow" / "pcap_to_flow.py"),
+                    "--input",
+                    str(pcap_path),
+                    "--output",
+                    str(flow_csv),
+                ],
+                dry_run=args.dry_run,
+            )
+            print_done(str(flow_csv))
 
-        run_step(
-            2,
-            "Summarize overall flow features",
-            [
-                sys.executable,
-                str(REPO_ROOT / "scripts" / "flow" / "summarize_flow_features.py"),
-                "--input",
-                str(flow_csv),
-                "--output",
-                str(overall_features),
-            ],
-            dry_run=args.dry_run,
-        )
-        print_done(str(overall_features))
+        if not args.force and outputs_exist([overall_features]):
+            print_skip(2, "Summarize overall flow features", [overall_features])
+        else:
+            run_step(
+                2,
+                "Summarize overall flow features",
+                [
+                    sys.executable,
+                    str(REPO_ROOT / "scripts" / "flow" / "summarize_flow_features.py"),
+                    "--input",
+                    str(flow_csv),
+                    "--output",
+                    str(overall_features),
+                ],
+                dry_run=args.dry_run,
+            )
+            print_done(str(overall_features))
 
-        run_step(
-            3,
-            "Run aguri3/agurim",
-            [
-                sys.executable,
-                str(REPO_ROOT / "scripts" / "aguri" / "run_aguri.py"),
-                "--pcap",
-                str(pcap_path),
-                "--dataset",
-                dataset,
-                "--force",
-            ],
-            dry_run=args.dry_run,
-        )
-        print_done(f"{aguri_agr_path(dataset)}, {agurim_txt}")
+        aguri_outputs = [aguri_agr_path(dataset), agurim_txt]
+        if not args.force and outputs_exist(aguri_outputs):
+            print_skip(3, "Run aguri3/agurim", aguri_outputs)
+        else:
+            run_step(
+                3,
+                "Run aguri3/agurim",
+                [
+                    sys.executable,
+                    str(REPO_ROOT / "scripts" / "aguri" / "run_aguri.py"),
+                    "--pcap",
+                    str(pcap_path),
+                    "--dataset",
+                    dataset,
+                    "--force",
+                ],
+                dry_run=args.dry_run,
+            )
+            print_done(f"{aguri_agr_path(dataset)}, {agurim_txt}")
 
-        run_step(
-            4,
-            "Parse agurim output into prefix candidates CSV",
-            [
-                sys.executable,
-                str(REPO_ROOT / "scripts" / "aguri" / "parse_agurim.py"),
-                "--input",
-                str(agurim_txt),
-                "--output",
-                str(aguri_candidates),
-                "--force",
-            ],
-            dry_run=args.dry_run,
-        )
-        print_done(str(aguri_candidates))
+        if not args.force and outputs_exist([aguri_candidates]):
+            print_skip(4, "Parse agurim output into prefix candidates CSV", [aguri_candidates])
+        else:
+            run_step(
+                4,
+                "Parse agurim output into prefix candidates CSV",
+                [
+                    sys.executable,
+                    str(REPO_ROOT / "scripts" / "aguri" / "parse_agurim.py"),
+                    "--input",
+                    str(agurim_txt),
+                    "--output",
+                    str(aguri_candidates),
+                    "--force",
+                ],
+                dry_run=args.dry_run,
+            )
+            print_done(str(aguri_candidates))
 
-        run_step(
-            5,
-            "Evaluate prefix candidates using flow features",
-            [
-                sys.executable,
-                str(REPO_ROOT / "scripts" / "prefix" / "evaluate_prefixes.py"),
-                "--flows",
-                str(flow_csv),
-                "--aguri",
-                str(aguri_candidates),
-                "--config",
-                str(config_path),
-                "--out-dir",
-                str(prefix_output_dir(dataset)),
-            ],
-            dry_run=args.dry_run,
-        )
-        print_done(f"{prefix_evaluation_path(dataset)}, {selected_prefixes}")
+        prefix_outputs = [prefix_evaluation_path(dataset), selected_prefixes]
+        if not args.force and outputs_exist(prefix_outputs):
+            print_skip(5, "Evaluate prefix candidates using flow features", prefix_outputs)
+        else:
+            run_step(
+                5,
+                "Evaluate prefix candidates using flow features",
+                [
+                    sys.executable,
+                    str(REPO_ROOT / "scripts" / "prefix" / "evaluate_prefixes.py"),
+                    "--flows",
+                    str(flow_csv),
+                    "--aguri",
+                    str(aguri_candidates),
+                    "--config",
+                    str(config_path),
+                    "--out-dir",
+                    str(prefix_output_dir(dataset)),
+                ],
+                dry_run=args.dry_run,
+            )
+            print_done(f"{prefix_evaluation_path(dataset)}, {selected_prefixes}")
 
         if args.dry_run:
             run_step(
@@ -577,34 +604,27 @@ def main() -> int:
             return 0
 
         selected_prefix_list = load_selected_prefixes(selected_prefixes)
-        predicted_prefix_flow_paths = [
-            prefix_flows_out_dir / f"dst_{prefix_to_filename(prefix)}.csv"
-            for prefix in selected_prefix_list
-        ]
+        predicted_prefix_flow_paths = expected_prefix_flow_paths(dataset, selected_prefix_list)
 
-        for prefix in selected_prefix_list:
-            predicted_prefix_flow = prefix_flows_out_dir / f"dst_{prefix_to_filename(prefix)}.csv"
-            ensure_can_write(predicted_prefix_flow, args.force)
-            ensure_can_write(prefix_feature_path(predicted_prefix_flow), args.force)
-
-        ensure_can_write(comparison_output_dir(dataset) / "comparison_summary.csv", args.force)
-
-        run_step(
-            6,
-            "Extract flows for each selected prefix",
-            [
-                sys.executable,
-                str(REPO_ROOT / "scripts" / "prefix" / "filter_flows_by_prefix.py"),
-                "--flows",
-                str(flow_csv),
-                "--selected",
-                str(selected_prefixes),
-                "--out-dir",
-                str(prefix_flows_out_dir),
-            ],
-            dry_run=False,
-        )
-        print_done(str(prefix_flows_out_dir))
+        if not args.force and outputs_exist(predicted_prefix_flow_paths):
+            print_skip(6, "Extract flows for each selected prefix", predicted_prefix_flow_paths)
+        else:
+            run_step(
+                6,
+                "Extract flows for each selected prefix",
+                [
+                    sys.executable,
+                    str(REPO_ROOT / "scripts" / "prefix" / "filter_flows_by_prefix.py"),
+                    "--flows",
+                    str(flow_csv),
+                    "--selected",
+                    str(selected_prefixes),
+                    "--out-dir",
+                    str(prefix_flows_out_dir),
+                ],
+                dry_run=False,
+            )
+            print_done(str(prefix_flows_out_dir))
 
         prefix_flow_files = [path for path in predicted_prefix_flow_paths if path.exists()]
         if not prefix_flow_files:
@@ -613,7 +633,14 @@ def main() -> int:
 
         for prefix_flow_path in prefix_flow_files:
             prefix_feature_output = prefix_feature_path(prefix_flow_path)
-            ensure_can_write(prefix_feature_output, args.force)
+            if not args.force and outputs_exist([prefix_feature_output]):
+                print_skip(
+                    7,
+                    f"Summarize prefix flow features: {prefix_flow_path.name}",
+                    [prefix_feature_output],
+                )
+                continue
+
             run_step(
                 7,
                 f"Summarize prefix flow features: {prefix_flow_path.name}",
@@ -629,22 +656,26 @@ def main() -> int:
             )
             print_done(str(prefix_feature_output))
 
-        run_step(
-            8,
-            "Plot overall vs prefix feature comparisons",
-            [
-                sys.executable,
-                str(REPO_ROOT / "scripts" / "graph" / "plot_prefix_comparison.py"),
-                "--overall",
-                str(overall_features),
-                "--prefix-dir",
-                str(prefix_features_out_dir),
-                "--out-dir",
-                str(comparison_output_dir(dataset)),
-            ],
-            dry_run=False,
-        )
-        print_done(str(comparison_output_dir(dataset)))
+        comparison_summary = comparison_output_dir(dataset) / "comparison_summary.csv"
+        if not args.force and outputs_exist([comparison_summary]):
+            print_skip(8, "Plot overall vs prefix feature comparisons", [comparison_summary])
+        else:
+            run_step(
+                8,
+                "Plot overall vs prefix feature comparisons",
+                [
+                    sys.executable,
+                    str(REPO_ROOT / "scripts" / "graph" / "plot_prefix_comparison.py"),
+                    "--overall",
+                    str(overall_features),
+                    "--prefix-dir",
+                    str(prefix_features_out_dir),
+                    "--out-dir",
+                    str(comparison_output_dir(dataset)),
+                ],
+                dry_run=False,
+            )
+            print_done(str(comparison_output_dir(dataset)))
     except (FileExistsError, FileNotFoundError) as exc:
         print_error(str(exc))
         return 1
