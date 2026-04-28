@@ -77,8 +77,20 @@ def resolve_from_repo_root(path: Path) -> Path:
     return path if path.is_absolute() else REPO_ROOT / path
 
 
+def infer_flow_dataset_name(flows_path: Path) -> str:
+    try:
+        relative_path = flows_path.resolve().relative_to(REPO_ROOT.resolve())
+    except ValueError:
+        return flows_path.stem
+
+    if relative_path.parts[:3] == ("results", "flows", "all") and len(relative_path.parts) >= 5:
+        return relative_path.parts[3]
+
+    return flows_path.stem
+
+
 def default_output_dir(flows_path: Path) -> Path:
-    return REPO_ROOT / "results" / "flows" / "prefix" / flows_path.stem
+    return REPO_ROOT / "results" / "flows" / "prefix" / infer_flow_dataset_name(flows_path)
 
 
 def warn(message: str) -> None:

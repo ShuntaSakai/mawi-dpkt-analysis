@@ -294,6 +294,9 @@ def infer_dataset_name(input_path: Path) -> str:
     if relative_input.parts[:3] == ("results", "flows", "all") and len(relative_input.parts) >= 5:
         return relative_input.parts[3]
 
+    if relative_input.parts[:3] == ("results", "flows", "prefix") and len(relative_input.parts) >= 5:
+        return relative_input.parts[3]
+
     return input_path.stem
 
 
