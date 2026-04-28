@@ -44,8 +44,10 @@ python scripts/flow/summarize_flow_features.py \
 - 必須オプション:
   - `--input`
 - 主なデフォルト:
-  - ベース出力先: `results/flow_plots/all`
-  - 実際の保存先: `results/flow_plots/all/<dataset_name>/`
+  - 全体 features JSON のベース出力先: `results/flow_plots/all`
+  - 全体 features JSON の実際の保存先: `results/flow_plots/all/<dataset_name>/`
+  - prefix features JSON のベース出力先: `results/flow_plots/prefix`
+  - prefix features JSON の実際の保存先: `results/flow_plots/prefix/<dataset>/<prefix>/`
   - 生成対象: `--graph all`
   - 上位フロー表示数: `--top-n 10`
 - 最小実行例:
@@ -74,6 +76,7 @@ results/flow_plots/all/<dataset_name>/*.png
 ```
 
 prefix ごとの flow CSV を要約する場合は、入力 CSV が `results/flows/prefix/` 配下にあるため、出力も対応する `results/features/prefix/` 配下に自動で振り分けられます。
+prefix features JSON を可視化する場合は、入力 JSON が `results/features/prefix/<dataset>/` 配下にあるため、出力も `results/flow_plots/prefix/<dataset>/<prefix>/` 配下に自動で振り分けられます。
 
 ## スクリプト詳細
 
@@ -199,8 +202,11 @@ prefix ごとの flow CSV を要約する場合は、入力 CSV が `results/flo
 - 入力:
   - `features.json`
 - 出力:
-  - `results/flow_plots/all/<dataset_name>/`
-  - `--outdir` を変更した場合は `<outdir>/<dataset_name>/`
+  - 全体 features JSON: `results/flow_plots/all/<dataset_name>/`
+  - prefix features JSON: `results/flow_plots/prefix/<dataset>/<prefix>/`
+  - `--outdir` を変更した場合:
+    - 全体 features JSON は `<outdir>/<dataset_name>/`
+    - prefix features JSON は `<outdir>/<dataset>/<prefix>/`
 - 主なオプション:
   - `--graph`
     - `features`

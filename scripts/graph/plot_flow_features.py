@@ -58,6 +58,56 @@ def dataset_name(data: dict[str, Any], input_path: Path) -> str:
     return data.get("scope", {}).get("dataset_name", input_path.stem)
 
 
+def relative_to_repo(path: Path) -> Path | None:
+    try:
+        return path.resolve().relative_to(REPO_ROOT.resolve())
+    except ValueError:
+        return None
+
+
+def is_prefix_feature_json(input_path: Path) -> bool:
+    relative_path = relative_to_repo(input_path)
+    return (
+        relative_path is not None
+        and len(relative_path.parts) >= 5
+        and relative_path.parts[:3] == ("results", "features", "prefix")
+    )
+
+
+def prefix_dataset_dirname(data: dict[str, Any], input_path: Path) -> str:
+    relative_path = relative_to_repo(input_path)
+    if (
+        relative_path is not None
+        and len(relative_path.parts) >= 5
+        and relative_path.parts[:3] == ("results", "features", "prefix")
+    ):
+        return relative_path.parts[3]
+    return sanitize_filename(dataset_name(data, input_path))
+
+
+def prefix_plot_dirname(input_path: Path) -> str:
+    stem = input_path.stem
+    if stem.endswith("_features"):
+        stem = stem[: -len("_features")]
+    return sanitize_filename(stem)
+
+
+def default_base_outdir(input_path: Path) -> Path:
+    if is_prefix_feature_json(input_path):
+        return REPO_ROOT / "results" / "flow_plots" / "prefix"
+    return REPO_ROOT / "results" / "flow_plots" / "all"
+
+
+def build_output_dir(base_outdir: Path, data: dict[str, Any], input_path: Path) -> Path:
+    if is_prefix_feature_json(input_path):
+        return (
+            base_outdir
+            / sanitize_filename(prefix_dataset_dirname(data, input_path))
+            / prefix_plot_dirname(input_path)
+        )
+    return base_outdir / sanitize_filename(dataset_name(data, input_path))
+
+
 def valid_flow_count(data: dict[str, Any]) -> int:
     return int(data.get("totals", {}).get("valid_flow_count", 0))
 
@@ -372,8 +422,12 @@ def parse_args() -> argparse.Namespace:
     optional_args.add_argument(
         "--outdir",
         type=Path,
-        default=Path("results/flow_plots/all"),
-        help="base output directory for plot images",
+        default=None,
+        help=(
+            "base output directory for plot images; if omitted, use "
+            "results/flow_plots/all for overall features JSON and "
+            "results/flow_plots/prefix for prefix features JSON"
+        ),
     )
     optional_args.add_argument(
         "--graph",
@@ -400,7 +454,6 @@ def main() -> int:
     args = parse_args()
 
     input_path = resolve_from_repo_root(args.input)
-    outdir = resolve_from_repo_root(args.outdir)
 
     if not input_path.exists():
         print(f"[error] input not found: {input_path}")
@@ -413,7 +466,12 @@ def main() -> int:
         print(f"[error] {exc}")
         return 1
 
-    output_dir = outdir / sanitize_filename(dataset_name(data, input_path))
+    outdir = (
+        resolve_from_repo_root(args.outdir)
+        if args.outdir is not None
+        else default_base_outdir(input_path)
+    )
+    output_dir = build_output_dir(outdir, data, input_path)
 
     created = generate_plots(
         data=data,

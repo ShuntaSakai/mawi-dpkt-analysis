@@ -110,6 +110,7 @@ results/comparison/<dataset>/
   - 現在は `results/flow_plots/all/http_traffic/` があります
 - `results/flow_plots/prefix/`
   - prefix flow を同様に可視化する際の出力先です
+  - 現行の `plot_flow_features.py` では `results/flow_plots/prefix/<dataset>/<prefix>/` に保存されます
 
 ### `comparison/`
 
