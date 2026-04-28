@@ -142,7 +142,7 @@ results/comparison/<dataset>/
   - `plots/` 配下の比較画像
 - 役割:
   - MAWI 全体と各 prefix を 1 対 1 で比較します
-  - `duration`、`packet_count`、`byte_count`、`avg_packet_size` の分布要約を比較します
+  - `flow_inter_arrival_time`、`duration`、`packet_count`、`byte_count`、`avg_packet_size` の分布要約を比較します
   - behavioral indicators と TCP/UDP 比率も比較対象に含めます
 
 ## 研究上の注意

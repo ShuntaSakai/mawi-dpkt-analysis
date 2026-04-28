@@ -48,6 +48,7 @@
 - 現行パイプライン用の可視化スクリプト群です
 - `plot_flow_features.py` は単独の flow 特徴量可視化を担当します
 - `plot_prefix_comparison.py` は MAWI 全体と prefix の 1 対 1 比較を担当します
+  - `flow_inter_arrival_time` を含む flow 特徴量ヒストグラム比較を出力します
 
 ### `pipeline/`
 

@@ -59,6 +59,7 @@ results/comparison/<dataset>/
   - それ以外は `results/features/all/<input_stem>/features.json`
 - `scripts/graph/plot_prefix_comparison.py`
   - 省略時は `results/comparison/<dataset_name>/`
+  - `flow_inter_arrival_time` を含む全体 vs prefix の比較画像を出力
 
 ## ディレクトリ詳細
 

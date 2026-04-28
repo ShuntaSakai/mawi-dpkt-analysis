@@ -27,6 +27,7 @@ def require_matplotlib() -> tuple[Any, Any]:
     return matplotlib, plt
 
 COMPARE_FEATURES = [
+    "flow_inter_arrival_time",
     "duration",
     "packet_count",
     "byte_count",
@@ -455,6 +456,8 @@ def write_summary_csv(rows: list[dict[str, Any]], out_path: Path) -> None:
         "udp_flow_ratio",
         "duration_mean",
         "duration_median",
+        "flow_inter_arrival_time_mean",
+        "flow_inter_arrival_time_median",
         "packet_count_mean",
         "packet_count_median",
         "byte_count_mean",
