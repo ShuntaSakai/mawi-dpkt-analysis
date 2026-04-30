@@ -257,22 +257,20 @@ def histogram_counts(hist: dict[str, Any]) -> list[float] | None:
         return None
 
 
-def histogram_centers(edges: list[float], count_len: int) -> list[float] | None:
-    if len(edges) == count_len + 1:
-        return [(edges[i] + edges[i + 1]) / 2.0 for i in range(count_len)]
-    if len(edges) == count_len:
-        return list(edges)
-    return None
-
-
-def normalize_counts(counts: list[float]) -> list[float]:
+def cumulative_ratios(counts: list[float]) -> list[float]:
     total = sum(counts)
     if total <= 0:
         return [0.0 for _ in counts]
-    return [value / total for value in counts]
+
+    cumulative = 0.0
+    ratios: list[float] = []
+    for value in counts:
+        cumulative += value
+        ratios.append(cumulative / total)
+    return ratios
 
 
-def normalize_histogram(
+def cdf_from_histogram(
     hist_type: str,
     hist: dict[str, Any],
 ) -> tuple[list[float], list[float], list[float]] | None:
@@ -281,11 +279,22 @@ def normalize_histogram(
     if edges is None or counts is None or not counts:
         return None
 
-    centers = histogram_centers(edges, len(counts))
-    if centers is None:
+    y = cumulative_ratios(counts)
+    if len(edges) == len(counts) + 1:
+        x = [edges[0]]
+        step_y = [0.0]
+        previous_ratio = 0.0
+        for upper_edge, ratio in zip(edges[1:], y):
+            x.extend([upper_edge, upper_edge])
+            step_y.extend([previous_ratio, ratio])
+            previous_ratio = ratio
+        y = step_y
+    elif len(edges) == len(counts):
+        x = edges
+    else:
         return None
 
-    return edges, centers, normalize_counts(counts)
+    return edges, x, y
 
 
 def compact_title(prefix_name: str, max_width: int = 48) -> str:
@@ -335,7 +344,7 @@ def add_bin_mismatch_note(ax: plt.Axes, overall_edges: list[float], prefix_edges
         )
 
 
-def plot_histogram_compare(
+def plot_cdf_compare(
     overall_json: dict[str, Any],
     prefix_json: dict[str, Any],
     prefix_name: str,
@@ -374,14 +383,14 @@ def plot_histogram_compare(
                 overall_hist = overall_feature[shared_type]
                 prefix_hist = prefix_feature[shared_type]
 
-    overall_norm = normalize_histogram(overall_hist_type, overall_hist)
-    prefix_norm = normalize_histogram(prefix_hist_type, prefix_hist)
-    if overall_norm is None or prefix_norm is None:
+    overall_cdf = cdf_from_histogram(overall_hist_type, overall_hist)
+    prefix_cdf = cdf_from_histogram(prefix_hist_type, prefix_hist)
+    if overall_cdf is None or prefix_cdf is None:
         warn(f"invalid histogram format for {feature_name}: {prefix_name}")
         return False
 
-    overall_edges, overall_x, overall_y = overall_norm
-    prefix_edges, prefix_x, prefix_y = prefix_norm
+    overall_edges, overall_x, overall_y = overall_cdf
+    prefix_edges, prefix_x, prefix_y = prefix_cdf
 
     fig, ax = plt_module.subplots(figsize=(9.5, 5.8))
     ax.plot(overall_x, overall_y, label=f"overall (n={get_flow_count(overall_json)})", linewidth=2.0)
@@ -391,8 +400,9 @@ def plot_histogram_compare(
         ax.set_xscale("log")
 
     ax.set_xlabel(feature_axis_label(feature_name, overall_hist_type, overall_feature))
-    ax.set_ylabel("Normalized frequency")
-    ax.set_title(f"{feature_name.replace('_', ' ')}: overall vs prefix\n{compact_title(prefix_name)}")
+    ax.set_ylabel("Cumulative flow ratio")
+    ax.set_ylim(0, 1.02)
+    ax.set_title(f"{feature_name.replace('_', ' ')} CDF: overall vs prefix\n{compact_title(prefix_name)}")
     ax.legend()
     ax.grid(alpha=0.25, linewidth=0.5)
     add_small_sample_note(ax, get_flow_count(prefix_json))
@@ -510,7 +520,7 @@ def process_prefix_file(
     safe_mkdir(prefix_plot_dir)
 
     for feature_name in COMPARE_FEATURES:
-        created = plot_histogram_compare(
+        created = plot_cdf_compare(
             overall_json=overall_json,
             prefix_json=prefix_json,
             prefix_name=prefix_name,
