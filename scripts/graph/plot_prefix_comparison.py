@@ -6,6 +6,7 @@ import csv
 import json
 import math
 import textwrap
+from bisect import bisect_right
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +35,18 @@ COMPARE_FEATURES = [
     "avg_packet_size",
 ]
 
+HISTOGRAM_COMPARE_FEATURES = [
+    "flow_inter_arrival_time",
+    "duration",
+    "packet_count",
+    "byte_count",
+    "pps",
+    "bps",
+    "avg_packet_size",
+    "packets_from_src_ratio",
+    "bytes_from_src_ratio",
+]
+
 BEHAVIORAL_KEY_ALIASES = {
     "short_flow_ratio": ("short_flow_ratio", "short_flow_ratio_le_1s"),
     "tiny_flow_ratio": ("tiny_flow_ratio", "tiny_flow_ratio_le_3packets"),
@@ -47,6 +60,9 @@ PROTOCOL_ALIASES = {
 }
 
 LOW_FLOW_COUNT_THRESHOLD = 30
+
+
+FeatureValues = dict[str, list[float]]
 
 
 def parse_args() -> argparse.Namespace:
@@ -117,6 +133,17 @@ def warn(message: str) -> None:
     print(f"[WARN] {message}")
 
 
+def parse_float_strict(value: str, field_name: str) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field_name} is not a float: {value!r}") from exc
+
+    if not math.isfinite(parsed):
+        raise ValueError(f"{field_name} is not finite: {value!r}")
+    return parsed
+
+
 def get_feature_block(features_json: dict[str, Any], feature_name: str) -> dict[str, Any] | None:
     features = features_json.get("features")
     if not isinstance(features, dict):
@@ -137,6 +164,27 @@ def get_flow_count(features_json: dict[str, Any]) -> int:
             return int(stats["count"])
 
     return 0
+
+
+def get_dataset_name(features_json: dict[str, Any], fallback: str = "unknown") -> str:
+    scope = features_json.get("scope", {})
+    if isinstance(scope, dict):
+        dataset_name = scope.get("dataset_name")
+        if isinstance(dataset_name, str) and dataset_name.strip():
+            return dataset_name.strip()
+    return fallback
+
+
+def get_input_file_path(features_json: dict[str, Any]) -> Path | None:
+    meta = features_json.get("meta", {})
+    if not isinstance(meta, dict):
+        return None
+
+    input_file = meta.get("input_file")
+    if not isinstance(input_file, str) or not input_file.strip():
+        return None
+
+    return resolve_from_repo_root(Path(input_file))
 
 
 def get_behavioral_indicators(features_json: dict[str, Any]) -> dict[str, float]:
@@ -257,6 +305,197 @@ def histogram_counts(hist: dict[str, Any]) -> list[float] | None:
         return None
 
 
+def histogram_bin_count(feature_block: dict[str, Any], hist_key: str = "histogram", default: int = 20) -> int:
+    hist = feature_block.get(hist_key)
+    if isinstance(hist, dict):
+        bins = hist.get("bins")
+        if isinstance(bins, int) and bins > 0:
+            return bins
+
+        counts = hist.get("counts")
+        if isinstance(counts, list) and counts:
+            return len(counts)
+
+    return default
+
+
+def build_common_edges(values_a: list[float], values_b: list[float], bins: int) -> list[float] | None:
+    values = values_a + values_b
+    if not values:
+        return None
+
+    value_min = min(values)
+    value_max = max(values)
+    if value_min == value_max:
+        return [value_min, value_max]
+
+    width = (value_max - value_min) / bins
+    return [value_min + width * i for i in range(bins + 1)]
+
+
+def build_common_log_edges(values_a: list[float], values_b: list[float], bins: int) -> list[float] | None:
+    positive_values = [value for value in values_a + values_b if value > 0]
+    if not positive_values:
+        return None
+
+    log_min = math.log10(min(positive_values))
+    log_max = math.log10(max(positive_values))
+    if log_min == log_max:
+        value = 10 ** log_min
+        return [value, value]
+
+    width = (log_max - log_min) / bins
+    return [10 ** (log_min + width * i) for i in range(bins + 1)]
+
+
+def count_values_in_edges(values: list[float], edges: list[float]) -> list[float] | None:
+    if len(edges) < 2:
+        return None
+
+    counts = [0.0 for _ in range(len(edges) - 1)]
+    if len(edges) == 2 and edges[0] == edges[1]:
+        counts[0] = float(sum(1 for value in values if value == edges[0]))
+        return counts
+
+    if edges[-1] <= edges[0]:
+        return None
+
+    for value in values:
+        if value < edges[0] or value > edges[-1]:
+            continue
+        index = bisect_right(edges, value) - 1
+        if index == len(counts):
+            index -= 1
+        if index < 0:
+            continue
+        counts[index] += 1.0
+
+    return counts
+
+
+def count_log_values_in_edges(values: list[float], edges: list[float]) -> tuple[list[float] | None, int]:
+    positive_values = [value for value in values if value > 0]
+    non_positive_count = len(values) - len(positive_values)
+    return count_values_in_edges(positive_values, edges), non_positive_count
+
+
+def common_histogram(values: list[float], edges: list[float]) -> dict[str, Any] | None:
+    counts = count_values_in_edges(values, edges)
+    if counts is None:
+        return None
+    return {
+        "bins": len(counts),
+        "edges": edges,
+        "counts": counts,
+    }
+
+
+def common_log_histogram(values: list[float], edges: list[float]) -> dict[str, Any] | None:
+    counts, non_positive_count = count_log_values_in_edges(values, edges)
+    if counts is None:
+        return None
+    return {
+        "bins": len(counts),
+        "linear_edges": edges,
+        "counts": counts,
+        "non_positive_count": non_positive_count,
+    }
+
+
+def common_histograms_for_feature(
+    overall_feature: dict[str, Any],
+    prefix_feature: dict[str, Any],
+    overall_values: list[float],
+    prefix_values: list[float],
+    hist_type: str,
+) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    if not overall_values or not prefix_values:
+        return None
+
+    bins = max(
+        histogram_bin_count(overall_feature, hist_type),
+        histogram_bin_count(prefix_feature, hist_type),
+    )
+
+    if hist_type == "log_histogram":
+        common_edges = build_common_log_edges(overall_values, prefix_values, bins)
+        if common_edges is None:
+            return None
+        overall_hist = common_log_histogram(overall_values, common_edges)
+        prefix_hist = common_log_histogram(prefix_values, common_edges)
+    else:
+        common_edges = build_common_edges(overall_values, prefix_values, bins)
+        if common_edges is None:
+            return None
+        overall_hist = common_histogram(overall_values, common_edges)
+        prefix_hist = common_histogram(prefix_values, common_edges)
+
+    if overall_hist is None or prefix_hist is None:
+        return None
+    return overall_hist, prefix_hist
+
+
+def flow_csv_feature_values(csv_path: Path) -> FeatureValues:
+    values: FeatureValues = {feature_name: [] for feature_name in HISTOGRAM_COMPARE_FEATURES}
+    start_times: list[float] = []
+
+    with csv_path.open("r", encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        if reader.fieldnames is None:
+            raise ValueError("CSV header is missing")
+
+        for row in reader:
+            try:
+                start_time = parse_float_strict(row["start_time"], "start_time")
+                end_time = parse_float_strict(row["end_time"], "end_time")
+                duration = parse_float_strict(row["duration"], "duration")
+                packet_count = parse_float_strict(row["packet_count"], "packet_count")
+                byte_count = parse_float_strict(row["byte_count"], "byte_count")
+                packets_from_src = parse_float_strict(row["packets_from_src"], "packets_from_src")
+                bytes_from_src = parse_float_strict(row["bytes_from_src"], "bytes_from_src")
+                if end_time < start_time or duration < 0 or packet_count < 0 or byte_count < 0:
+                    raise ValueError("invalid flow row")
+
+                start_times.append(start_time)
+                values["duration"].append(duration)
+                values["packet_count"].append(packet_count)
+                values["byte_count"].append(byte_count)
+                values["pps"].append(parse_float_strict(row["pps"], "pps"))
+                values["bps"].append(parse_float_strict(row["bps"], "bps"))
+                values["avg_packet_size"].append(byte_count / packet_count if packet_count > 0 else 0.0)
+                values["packets_from_src_ratio"].append(
+                    packets_from_src / packet_count if packet_count > 0 else 0.0
+                )
+                values["bytes_from_src_ratio"].append(
+                    bytes_from_src / byte_count if byte_count > 0 else 0.0
+                )
+            except (KeyError, ValueError):
+                continue
+
+    sorted_start_times = sorted(start_times)
+    values["flow_inter_arrival_time"] = [
+        sorted_start_times[i] - sorted_start_times[i - 1]
+        for i in range(1, len(sorted_start_times))
+    ]
+    return values
+
+
+def load_flow_feature_values(features_json: dict[str, Any], label: str) -> FeatureValues | None:
+    input_file_path = get_input_file_path(features_json)
+    if input_file_path is None:
+        warn(f"{label}: meta.input_file is missing; skip strict common-bin histograms")
+        return None
+    if not input_file_path.exists():
+        warn(f"{label}: flow CSV not found: {input_file_path}; skip strict common-bin histograms")
+        return None
+
+    try:
+        return flow_csv_feature_values(input_file_path)
+    except (OSError, ValueError) as exc:
+        warn(f"{label}: failed to load flow CSV for strict common-bin histograms ({exc})")
+        return None
+
+
 def cumulative_ratios(counts: list[float]) -> list[float]:
     total = sum(counts)
     if total <= 0:
@@ -325,6 +564,26 @@ def add_small_sample_note(ax: plt.Axes, flow_count: int) -> None:
         )
 
 
+def add_log_exclusion_note(ax: plt.Axes, histogram: dict[str, Any]) -> None:
+    non_positive_count = histogram.get("non_positive_count", 0)
+    try:
+        count = int(non_positive_count)
+    except (TypeError, ValueError):
+        count = 0
+
+    if count > 0:
+        ax.text(
+            0.99,
+            0.86,
+            f"excluded non-positive values: {count}",
+            transform=ax.transAxes,
+            ha="right",
+            va="top",
+            fontsize=8.5,
+            color="dimgray",
+        )
+
+
 def add_bin_mismatch_note(ax: plt.Axes, overall_edges: list[float], prefix_edges: list[float]) -> None:
     if len(overall_edges) != len(prefix_edges):
         mismatch = True
@@ -344,9 +603,197 @@ def add_bin_mismatch_note(ax: plt.Axes, overall_edges: list[float], prefix_edges
         )
 
 
+def histogram_data(hist_type: str, hist: dict[str, Any]) -> tuple[list[float], list[float]] | None:
+    edges = histogram_edges(hist_type, hist)
+    counts = histogram_counts(hist)
+    if edges is None or counts is None or not counts or len(edges) != len(counts) + 1:
+        return None
+    return edges, counts
+
+
+def plot_histogram_panel(
+    ax: plt.Axes,
+    feature_name: str,
+    feature_block: dict[str, Any],
+    hist_type: str,
+    histogram: dict[str, Any],
+    features_json: dict[str, Any],
+    dataset_label: str,
+    prefix_name: str,
+    target_label: str,
+) -> bool:
+    data = histogram_data(hist_type, histogram)
+    if data is None:
+        return False
+
+    edges, counts = data
+    left_edges = edges[:-1]
+    widths = [edges[i + 1] - edges[i] for i in range(len(counts))]
+
+    if len(widths) == 1 and math.isclose(widths[0], 0.0, rel_tol=0.0, abs_tol=1e-12):
+        center = left_edges[0]
+        width = abs(center) * 0.1 if center else 1.0
+        left_edges = [center - width / 2]
+        widths = [width]
+
+    ax.bar(left_edges, counts, width=widths, align="edge", edgecolor="black", linewidth=0.35)
+
+    if hist_type == "log_histogram":
+        ax.set_xscale("log")
+        add_log_exclusion_note(ax, histogram)
+
+    flow_count = get_flow_count(features_json)
+    ax.set_xlabel(feature_axis_label(feature_name, hist_type, feature_block))
+    ax.set_ylabel("Flow count")
+    ax.set_title(
+        "\n".join(
+            [
+                f"{feature_name} {target_label}",
+                f"dataset: {dataset_label}",
+                f"prefix: {prefix_name}",
+                f"flow count: {flow_count}",
+            ]
+        ),
+        fontsize=10,
+    )
+    ax.grid(axis="y", alpha=0.25, linewidth=0.5)
+    add_small_sample_note(ax, flow_count)
+    return True
+
+
+def should_plot_histogram_compare(feature_name: str, overall_feature: dict[str, Any], prefix_feature: dict[str, Any]) -> bool:
+    if overall_feature.get("unit") == "ratio" or prefix_feature.get("unit") == "ratio":
+        return False
+
+    return (
+        isinstance(overall_feature.get("histogram"), dict)
+        and isinstance(prefix_feature.get("histogram"), dict)
+        and isinstance(overall_feature.get("log_histogram"), dict)
+        and isinstance(prefix_feature.get("log_histogram"), dict)
+    )
+
+
+def plot_histogram_compare(
+    overall_json: dict[str, Any],
+    prefix_json: dict[str, Any],
+    overall_feature_values: FeatureValues,
+    prefix_feature_values: FeatureValues,
+    prefix_name: str,
+    feature_name: str,
+    out_path: Path,
+) -> bool | None:
+    _, plt_module = require_matplotlib()
+    overall_feature = get_feature_block(overall_json, feature_name)
+    prefix_feature = get_feature_block(prefix_json, feature_name)
+
+    if not overall_feature or not prefix_feature:
+        return None
+
+    if not should_plot_histogram_compare(feature_name, overall_feature, prefix_feature):
+        return None
+
+    overall_values = overall_feature_values.get(feature_name, [])
+    prefix_values = prefix_feature_values.get(feature_name, [])
+    if not overall_values or not prefix_values:
+        return None
+
+    common_histograms = common_histograms_for_feature(
+        overall_feature,
+        prefix_feature,
+        overall_values,
+        prefix_values,
+        "histogram",
+    )
+    common_log_histograms = common_histograms_for_feature(
+        overall_feature,
+        prefix_feature,
+        overall_values,
+        prefix_values,
+        "log_histogram",
+    )
+    if common_histograms is None or common_log_histograms is None:
+        return None
+
+    overall_hist, prefix_hist = common_histograms
+    overall_log_hist, prefix_log_hist = common_log_histograms
+
+    fig, axes = plt_module.subplots(2, 2, figsize=(13.5, 8.8), constrained_layout=True)
+    overall_dataset = get_dataset_name(overall_json)
+
+    panels = [
+        (
+            axes[0][0],
+            overall_feature,
+            "histogram",
+            overall_hist,
+            overall_json,
+            overall_dataset,
+            prefix_name,
+            "all / histogram",
+        ),
+        (
+            axes[0][1],
+            overall_feature,
+            "log_histogram",
+            overall_log_hist,
+            overall_json,
+            overall_dataset,
+            prefix_name,
+            "all / log histogram",
+        ),
+        (
+            axes[1][0],
+            prefix_feature,
+            "histogram",
+            prefix_hist,
+            prefix_json,
+            overall_dataset,
+            prefix_name,
+            "prefix / histogram",
+        ),
+        (
+            axes[1][1],
+            prefix_feature,
+            "log_histogram",
+            prefix_log_hist,
+            prefix_json,
+            overall_dataset,
+            prefix_name,
+            "prefix / log histogram",
+        ),
+    ]
+
+    for ax, feature_block, hist_type, histogram, features_json, dataset_label, panel_prefix, target_label in panels:
+        created = plot_histogram_panel(
+            ax=ax,
+            feature_name=feature_name,
+            feature_block=feature_block,
+            hist_type=hist_type,
+            histogram=histogram,
+            features_json=features_json,
+            dataset_label=dataset_label,
+            prefix_name=panel_prefix,
+            target_label=target_label,
+        )
+        if not created:
+            plt_module.close(fig)
+            warn(f"invalid histogram format for histogram {feature_name}: {prefix_name}")
+            return False
+
+    fig.suptitle(
+        f"{feature_name.replace('_', ' ')} histogram comparison: all vs prefix\n{compact_title(prefix_name)}",
+        fontsize=13,
+    )
+    fig.savefig(out_path, dpi=150)
+    plt_module.close(fig)
+    return True
+
+
 def plot_cdf_compare(
     overall_json: dict[str, Any],
     prefix_json: dict[str, Any],
+    overall_feature_values: FeatureValues | None,
+    prefix_feature_values: FeatureValues | None,
     prefix_name: str,
     feature_name: str,
     out_path: Path,
@@ -359,29 +806,60 @@ def plot_cdf_compare(
         warn(f"missing feature block for {feature_name}: {prefix_name}")
         return False
 
-    overall_choice = pick_histogram(overall_feature)
-    prefix_choice = pick_histogram(prefix_feature)
-    if overall_choice is None or prefix_choice is None:
-        warn(f"missing histogram for {feature_name}: {prefix_name}")
-        return False
+    overall_hist_type: str
+    prefix_hist_type: str
+    overall_hist: dict[str, Any]
+    prefix_hist: dict[str, Any]
+    using_common_bins = False
 
-    overall_hist_type, overall_hist = overall_choice
-    prefix_hist_type, prefix_hist = prefix_choice
+    if overall_feature_values is not None and prefix_feature_values is not None:
+        overall_values = overall_feature_values.get(feature_name, [])
+        prefix_values = prefix_feature_values.get(feature_name, [])
+        preferred_hist_type = (
+            "log_histogram"
+            if overall_feature.get("log_scale_recommended")
+            and prefix_feature.get("log_scale_recommended")
+            and isinstance(overall_feature.get("log_histogram"), dict)
+            and isinstance(prefix_feature.get("log_histogram"), dict)
+            else "histogram"
+        )
+        common_histograms = common_histograms_for_feature(
+            overall_feature,
+            prefix_feature,
+            overall_values,
+            prefix_values,
+            preferred_hist_type,
+        )
+        if common_histograms is not None:
+            overall_hist_type = preferred_hist_type
+            prefix_hist_type = preferred_hist_type
+            overall_hist, prefix_hist = common_histograms
+            using_common_bins = True
 
-    if overall_hist_type != prefix_hist_type:
-        shared_type = "histogram"
-        if overall_feature.get(shared_type) and prefix_feature.get(shared_type):
-            overall_hist_type = shared_type
-            prefix_hist_type = shared_type
-            overall_hist = overall_feature[shared_type]
-            prefix_hist = prefix_feature[shared_type]
-        else:
-            shared_type = "log_histogram"
+    if not using_common_bins:
+        overall_choice = pick_histogram(overall_feature)
+        prefix_choice = pick_histogram(prefix_feature)
+        if overall_choice is None or prefix_choice is None:
+            warn(f"missing histogram for {feature_name}: {prefix_name}")
+            return False
+
+        overall_hist_type, overall_hist = overall_choice
+        prefix_hist_type, prefix_hist = prefix_choice
+
+        if overall_hist_type != prefix_hist_type:
+            shared_type = "histogram"
             if overall_feature.get(shared_type) and prefix_feature.get(shared_type):
                 overall_hist_type = shared_type
                 prefix_hist_type = shared_type
                 overall_hist = overall_feature[shared_type]
                 prefix_hist = prefix_feature[shared_type]
+            else:
+                shared_type = "log_histogram"
+                if overall_feature.get(shared_type) and prefix_feature.get(shared_type):
+                    overall_hist_type = shared_type
+                    prefix_hist_type = shared_type
+                    overall_hist = overall_feature[shared_type]
+                    prefix_hist = prefix_feature[shared_type]
 
     overall_cdf = cdf_from_histogram(overall_hist_type, overall_hist)
     prefix_cdf = cdf_from_histogram(prefix_hist_type, prefix_hist)
@@ -406,7 +884,8 @@ def plot_cdf_compare(
     ax.legend()
     ax.grid(alpha=0.25, linewidth=0.5)
     add_small_sample_note(ax, get_flow_count(prefix_json))
-    add_bin_mismatch_note(ax, overall_edges, prefix_edges)
+    if not using_common_bins:
+        add_bin_mismatch_note(ax, overall_edges, prefix_edges)
     fig.tight_layout()
     fig.savefig(out_path, dpi=150)
     plt_module.close(fig)
@@ -499,6 +978,7 @@ def validate_overall_json(features_json: dict[str, Any], path: Path) -> None:
 
 def process_prefix_file(
     overall_json: dict[str, Any],
+    overall_feature_values: FeatureValues | None,
     prefix_path: Path,
     plots_dir: Path,
 ) -> tuple[dict[str, Any] | None, list[str]]:
@@ -518,17 +998,36 @@ def process_prefix_file(
     summary_row = extract_summary_row(prefix_name, prefix_json)
     prefix_plot_dir = plots_dir / sanitize_filename(prefix_name)
     safe_mkdir(prefix_plot_dir)
+    histogram_plot_dir = prefix_plot_dir / "histograms"
+    safe_mkdir(histogram_plot_dir)
+    prefix_feature_values = load_flow_feature_values(prefix_json, prefix_name)
 
     for feature_name in COMPARE_FEATURES:
         created = plot_cdf_compare(
             overall_json=overall_json,
             prefix_json=prefix_json,
+            overall_feature_values=overall_feature_values,
+            prefix_feature_values=prefix_feature_values,
             prefix_name=prefix_name,
             feature_name=feature_name,
             out_path=prefix_plot_dir / f"{feature_name}_compare.png",
         )
         if not created:
             warnings.append(f"{prefix_name}: failed to create {feature_name}_compare.png")
+
+    if overall_feature_values is not None and prefix_feature_values is not None:
+        for feature_name in HISTOGRAM_COMPARE_FEATURES:
+            created = plot_histogram_compare(
+                overall_json=overall_json,
+                prefix_json=prefix_json,
+                overall_feature_values=overall_feature_values,
+                prefix_feature_values=prefix_feature_values,
+                prefix_name=prefix_name,
+                feature_name=feature_name,
+                out_path=histogram_plot_dir / f"{feature_name}_hist_compare.png",
+            )
+            if created is False:
+                warnings.append(f"{prefix_name}: skipped {feature_name}_hist_compare.png")
 
     created = plot_behavioral_compare(
         overall_json=overall_json,
@@ -556,6 +1055,7 @@ def main() -> int:
 
     overall_json = load_json(overall_path)
     validate_overall_json(overall_json, overall_path)
+    overall_feature_values = load_flow_feature_values(overall_json, "overall")
     out_dir = (
         resolve_from_repo_root(args.out_dir)
         if args.out_dir is not None
@@ -575,7 +1075,7 @@ def main() -> int:
     warning_messages: list[str] = []
 
     for prefix_path in prefix_paths:
-        row, warnings = process_prefix_file(overall_json, prefix_path, plots_dir)
+        row, warnings = process_prefix_file(overall_json, overall_feature_values, prefix_path, plots_dir)
         warning_messages.extend(warnings)
         if row is not None:
             summary_rows.append(row)
