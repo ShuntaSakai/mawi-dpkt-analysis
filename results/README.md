@@ -22,6 +22,8 @@
   - `results/flow_plots/prefix/`
 - 全体 vs prefix 比較の直後:
   - `results/comparison/<dataset>/`
+- HTML レポート生成の直後:
+  - `results/reports/<dataset>/`
 
 ### 実行順序と参照先
 
@@ -120,6 +122,13 @@ results/comparison/<dataset>/
     - `comparison_summary.csv`
     - `plots/`
 - 現在は `results/comparison/http_traffic/` があります
+
+### `reports/`
+
+- `results/reports/<dataset>/`
+  - 比較結果を確認するための静的 HTML レポートを保存します
+  - 主なファイル:
+    - `analysis_report.html`
 
 ## 旧系統
 

@@ -16,6 +16,7 @@
 - prefix flow 抽出: `scripts/prefix/filter_flows_by_prefix.py`
 - 単独可視化: `scripts/graph/plot_flow_features.py`
 - 全体 vs prefix 比較可視化: `scripts/graph/plot_prefix_comparison.py`
+- HTML レポート生成: `scripts/reports/generate_analysis_report.py`
 
 ## 全体像
 
@@ -54,6 +55,11 @@
 
 - 一括実行用のディレクトリです
 - `run_full_prefix_pipeline.py` で `--pcap` または `--url` を起点に、全体 vs prefix 比較まで一括実行できます
+
+### `reports/`
+
+- 既存の比較結果を読み取り、研究用レポートとしてまとめる後段スクリプト群です
+- `generate_analysis_report.py` は `results/comparison/<dataset>/` から静的 HTML を生成します
 
 ## 補助的・旧系統
 
