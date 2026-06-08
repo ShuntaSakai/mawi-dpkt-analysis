@@ -20,3 +20,5 @@ python scripts/reports/generate_analysis_report.py --dataset 202604081300
 - `--strict`: 欠損 plot directory や期待 PNG の欠損をエラーにします。
 
 既定では Google Drive などで HTML 単体を共有しやすいように、PNG を base64 data URI として HTML に埋め込みます。HTML ファイルサイズを小さくしたい場合は `--no-embed-images` を指定してください。
+
+生成 HTML には印刷用 CSS を含めています。ブラウザから PDF 保存する場合は A4 横向きを想定し、prefix ごとのセクションが新しいページから始まるように改ページされます。

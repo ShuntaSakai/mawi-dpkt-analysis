@@ -529,6 +529,42 @@ def render_html(
         width: 42%;
       }}
     }}
+    @media print {{
+      @page {{
+        size: A4 landscape;
+        margin: 12mm;
+      }}
+      body {{
+        background: #fff;
+      }}
+      header, main {{
+        max-width: none;
+        padding: 0;
+      }}
+      section.prefix {{
+        break-before: page;
+        page-break-before: always;
+      }}
+      table, figure, .notes, details {{
+        break-inside: avoid;
+        page-break-inside: avoid;
+      }}
+      .figures {{
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }}
+      figure {{
+        border-color: #c7cdd3;
+      }}
+      img {{
+        max-height: 92mm;
+        object-fit: contain;
+      }}
+      a {{
+        color: inherit;
+        text-decoration: none;
+      }}
+    }}
   </style>
 </head>
 <body>
