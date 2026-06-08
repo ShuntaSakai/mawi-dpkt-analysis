@@ -89,8 +89,12 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--embed-images",
-        action="store_true",
-        help="Embed PNG images as base64 data URIs instead of relative file references.",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Embed PNG images as base64 data URIs. Use --no-embed-images "
+            "to reference PNG files by relative path instead."
+        ),
     )
     parser.add_argument(
         "--strict",
